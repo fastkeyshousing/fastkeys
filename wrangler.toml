@@ -1,0 +1,15 @@
+name = "fastkeys"
+compatibility_date = "2026-07-30"
+pages_build_output_dir = "public"
+
+# Non-secret configuration. Secrets never live here: set them under
+# Workers & Pages -> fastkeys -> Settings -> Variables and Secrets, or with
+# `npx wrangler pages secret put <NAME>`.
+[vars]
+SITE_URL = "https://fastkeyshousing.com"
+STRIPE_PRICE_ID = "price_REPLACE_ME"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fastkeys"
+database_id = "REPLACE_WITH_ID_FROM_d1_create"

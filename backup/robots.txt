@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /apply.html
+Disallow: /success.html
+
+Sitemap: https://fastkeyshousing.com/sitemap.xml
