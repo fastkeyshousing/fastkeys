@@ -359,7 +359,7 @@ button{font:inherit; color:inherit}
 .chan span{font-size:14px; color:rgba(237,239,242,.55)}
 .chan-primary{border-color:rgba(224,163,94,.45); background:rgba(224,163,94,.08)}
 
-/* floating whatsapp */
+/* floating call to action */
 .wa{
   position:fixed; right:clamp(16px,3vw,28px); bottom:clamp(16px,3vw,28px); z-index:120;
   display:inline-flex; align-items:center; gap:10px; text-decoration:none;
@@ -580,8 +580,7 @@ button{font:inherit; color:inherit}
       <div class="langs" role="group" aria-label="Language">
         <a href="/" hreflang="en">EN</a><i></i><a href="/nl" hreflang="nl">NL</a>
       </div>
-      <!-- EDIT: your WhatsApp number -->
-      <a class="btn btn-key" href="https://wa.me/31600000000?text=Hi%20FastKeys!%20I%20have%20a%20question%20about%20the%20application%20" target="_blank" rel="noopener">Ask a question</a>
+      <a class="btn btn-key" href="#applyForm">Apply now</a>
       <button class="burger" id="burger" aria-label="Open menu" aria-expanded="false" aria-controls="navlinks">
         <i></i><i></i><i></i>
       </button>
@@ -826,15 +825,11 @@ button{font:inherit; color:inherit}
         </div>
         <div class="foot-col">
           <h5>Talk to us</h5>
-          <a href="https://wa.me/31600000000" target="_blank" rel="noopener">WhatsApp</a>
-          <a href="https://www.facebook.com/profile.php?id=61592796262503" target="_blank" rel="noopener">Facebook</a>
           <a href="mailto:hello@fastkeyshousing.com">hello@fastkeyshousing.com</a>
         </div>
         <div class="foot-col">
           <h5>Details</h5>
           <p>Maastricht, Netherlands</p>
-          <!-- EDIT: KvK
-          <p>KvK 00000000</p> -->
         </div>
       </div>
     </div>
@@ -1211,7 +1206,7 @@ button{font:inherit; color:inherit}
     invalid_fields:      'Something in the form did not pass our checks. Please look back over it and try again.',
     challenge_failed:    'We could not verify that you are human. Please reload the page and try once more.',
     payment_setup_failed:'We could not reach Stripe just now. Nothing has been charged. Please try again in a moment.',
-    not_configured:      'Payments are not switched on yet. Please message us on WhatsApp and we will sort it out.',
+    not_configured:      'Payments are not switched on yet. Please email us at hello@fastkeyshousing.com and we will sort it out.',
     bad_origin:          'Your browser blocked the request. Please reload the page and try again.'
   };
 
@@ -1258,7 +1253,7 @@ button{font:inherit; color:inherit}
       busy(false);
       if(TURNSTILE_SITE_KEY && window.turnstile) window.turnstile.reset();
       var code = r.body && r.body.error;
-      fail(MESSAGES[code] || 'We could not start the payment. Nothing has been charged. Please try again, or message us on WhatsApp.');
+      fail(MESSAGES[code] || 'We could not start the payment. Nothing has been charged. Please try again, or email hello@fastkeyshousing.com.');
     }).catch(function(){
       busy(false);
       if(TURNSTILE_SITE_KEY && window.turnstile) window.turnstile.reset();

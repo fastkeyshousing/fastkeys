@@ -7,9 +7,9 @@ pages_build_output_dir = "public"
 # `npx wrangler pages secret put <NAME>`.
 [vars]
 SITE_URL = "https://fastkeyshousing.com"
-STRIPE_PRICE_ID = "price_REPLACE_ME"
+STRIPE_PRICE_ID = "price_1Tz3FmAiFErDFrhod3Xg44m0"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "fastkeys"
-database_id = "REPLACE_WITH_ID_FROM_d1_create"
+database_id = "7afc3947-69e8-4f9e-ad69-6b82c6af6186"

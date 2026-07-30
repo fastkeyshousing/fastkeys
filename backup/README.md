@@ -96,6 +96,11 @@ never counted.
 
 ## Setup
 
+**New to this? Read `SETUP.md` instead.** It walks through the Cloudflare and
+Stripe dashboards click by click, sets you up on a Stripe sandbox first, and
+covers the switch to real payments. What follows here is the short version for
+reference.
+
 ### 1. Database
 
 Jurisdiction is fixed at creation and cannot be changed afterwards. The Terms
@@ -238,13 +243,16 @@ any notification provider, and MFA on every account that can reach this data.
 
 Search for these across `public/`:
 
-- `hello@fastkeys.nl` should be `hello@fastkeyshousing.com`
-- WhatsApp `31600000000` appears several times per page
-- `KvK 00000000` in the footer, or delete the line
 - the version date in `terms.html`
-- three placeholder testimonials in the Students section, each reading
-  "Replace with a real name". Publish only real ones, with permission. If there
-  are none yet, delete the whole `<section id="students">` and its nav links.
+- the KvK number, once registration completes. It was removed rather than left
+  as zeros: a row of zeros reads as a fake business to exactly the audience that
+  is already scanning for signs of one. Put it back in the `Details` footer
+  column of `index.html` and `nl.html`, and in the imprint line of `terms.html`.
+
+Email is now the only contact channel; WhatsApp and Facebook were removed
+everywhere. If either comes back, the CSP in `public/_headers` does not need
+changing for links, but `_headers` would need `frame-src` widening for any
+embedded widget.
 
 Placement counts and student numbers were left out deliberately. This audience is
 already primed to expect scams, and one invented figure is the fastest way to

@@ -83,11 +83,20 @@ export async function onRequestGet({ request, env, waitUntil }) {
 
   if ((update.meta?.changes ?? 0) > 0) {
     const amount = `${((session.amount_total ?? 0) / 100).toFixed(2)} ${(session.currency || 'eur').toUpperCase()}`;
+    /* Same bookkeeping as the webhook path: notified_at is stamped only when a
+     * channel actually delivered, so the "paid but never delivered" query stays
+     * meaningful regardless of which path got here first. */
     const deliver = notifyPaid(env, {
       reference: row.reference,
       amount,
       application: JSON.parse(row.payload),
       letter: row.letter,
+    }).then(async (sent) => {
+      if (sent) {
+        await env.DB.prepare(`UPDATE applications SET notified_at = ?1 WHERE stripe_session_id = ?2`)
+          .bind(new Date().toISOString(), sessionId)
+          .run();
+      }
     }).catch((err) => console.error('[status] delivery failed:', err));
 
     if (typeof waitUntil === 'function') waitUntil(deliver);
