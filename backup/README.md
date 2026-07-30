@@ -1,158 +1,265 @@
-# FastKeys — website
+# FastKeys Housing
 
-Five pages, each one completely self-contained. The CSS, the JavaScript, the logo and
-the favicon are embedded in every file, so nothing can fail to load and there is no
-`assets/` folder to lose.
-
-```
-index.html      English home page
-nl.html         Dutch home page
-apply.html      application form, live letter preview, payment step
-success.html    where Stripe sends people back to; delivers the application
-terms.html      Terms & Conditions
-og-image.png    preview image for WhatsApp/Facebook link shares (optional)
-fastkeys-*.png  transparent logos for your Facebook page and print (optional)
-.nojekyll       tells GitHub to serve files as-is (optional, hidden)
-```
-
-Only the five HTML files are required.
+Static site plus a small API, deployed as one Cloudflare Pages project.
+`fastkeyshousing.com`
 
 ---
 
-## 1 · Connect Stripe (15 minutes)
+## Layout
 
-The site uses a **Stripe Payment Link**, not a custom checkout. That is the only way to
-take card payments from a static host like GitHub Pages without exposing a secret key.
-
-1. Stripe Dashboard → **Product catalogue** → add a product, e.g.
-   *"FastKeys application service"*, price **€50**, one-off.
-2. → **Payment links** → create a link for that product.
-3. In the link settings, under *After payment*, choose **Redirect customers to a page
-   you specify** and enter your success URL, e.g.
-   `https://fastkeys.nl/success.html` (or `https://<you>.github.io/<repo>/success.html`).
-4. Copy the link (it looks like `https://buy.stripe.com/aEU00abc123`).
-5. Open `apply.html`, find `STRIPE_LINK` near the bottom in the `EDIT THESE TWO LINES`
-   block, and paste it in.
-
-Until you do this, the form stops at the last step and says payment is not connected —
-it will not send anything or take money.
-
-### What you must know about how this works
-
-The flow is: fill in the form → the details are held **in the applicant's own browser** →
-Stripe takes the €50 → Stripe redirects back to `success.html` → the details are sent to you.
-
-**This does not cryptographically verify payment.** Someone who worked out the URL could
-open `success.html` directly and submit an application without paying. Nothing is exposed
-and no money is at risk, but you could receive an unpaid application.
-
-Two things make that a non-issue in practice:
-
-- Stripe emails you a receipt for every payment, and each application carries a reference
-  code (`FK-XXXXX-XXX`) that is also passed to Stripe as the `client_reference_id`.
-  **Before you start work, match the reference on the application to the payment in Stripe.**
-- The volume of people motivated to guess a URL to get free housing admin is roughly zero.
-
-If you later want real enforcement, the upgrade is a small serverless function
-(Cloudflare Workers, Vercel and Netlify all have free tiers) that verifies the Stripe
-Checkout Session server-side before accepting the application. The site is structured so
-that only `success.html` would need to change.
-
-## 2 · Connect the form delivery
-
-The application is delivered to you by an HTTP form service. Create a form at
-[formspree.io](https://formspree.io) (or an equivalent) and paste the endpoint into
-**both** places:
-
-- `apply.html` → `FORM_ENDPOINT`
-- `success.html` → `FORM_ENDPOINT`
-
-They must match. If delivery fails, the applicant is not left stranded: `success.html`
-shows them their application text with a copy button and a WhatsApp link.
-
-> **Compliance note.** This form carries income, savings, employer and guarantor data.
-> Your own Terms say it is stored in the EEA under processor agreements. Before you
-> publish, make that true: choose an EU-hosted form provider, sign a processor agreement
-> (verwerkersovereenkomst) with them and with Stripe, and turn on MFA everywhere.
-> Formspree's default hosting is US-based — check their current EU options or pick a
-> European alternative.
-
-## 3 · Everything else to fill in
-
-Search each file for `EDIT`.
-
-| What | Where |
-|---|---|
-| WhatsApp number | all five pages, several times each |
-| Email address | all five pages |
-| Stripe payment link | `apply.html` |
-| Form endpoint | `apply.html` **and** `success.html` |
-| Legal name, address, KvK, VAT, phone | `terms.html` clause 1, all footers |
-| Terms version date | bottom of `terms.html` |
-| Engagement period (60 days) | `terms.html` clause 5.4 |
-| Cities you cover | `index.html` and `nl.html` |
-| Real testimonials | `index.html` and `nl.html` — the three there are placeholders |
-| Pricing answer in the FAQ | `index.html` and `nl.html` |
-
-## 4 · Read the note at the top of terms.html
-
-`terms.html` opens with an HTML comment addressed to you. It flags the four clauses
-that carry real risk if they are wrong for your actual business — in particular
-**clause 4**, which commits you to being strictly tenant-side. Under Article 7:417(4)
-of the Dutch Civil Code and the Wet goed verhuurderschap, you may not charge the tenant
-a mediation fee if you also act for, or take money from, the landlord for the same
-property. Your whole €50 model rests on that.
-
-The document is a serious draft, not legal advice. Have a Dutch jurist read it before
-you take a single payment.
-
-## 5 · Publishing
-
-```bash
-git init && git add . && git commit -m "FastKeys site"
-git branch -M main
-git remote add origin https://github.com/<you>/<repo>.git
-git push -u origin main
+```
+functions/api/          each file becomes an endpoint on the live domain
+  apply.js              POST /api/apply
+  status.js             GET  /api/status
+  stripe-webhook.js     POST /api/stripe-webhook
+lib/                    shared modules, deliberately outside functions/ so
+  http.js               nothing here is routable
+  validate.js
+  stripe.js
+  notify.js
+public/                 the Pages build output directory
+  index.html            EN landing page
+  nl.html               NL landing page
+  apply.html            application form
+  success.html          confirmation, driven entirely by the API
+  terms.html
+  404.html
+  _headers  _redirects  *.png
+migrations/
+  0001_init.sql
+wrangler.toml
 ```
 
-Or drag the HTML files into your repo on github.com → *Add file* → *Upload files*.
-Each file is complete on its own, so this works.
+Anything not inside `public/` is never served. That is the reason for the
+directory: a stray file at the repository root used to be reachable on the live
+domain.
 
-Then **Settings → Pages → Source: Deploy from a branch → `main` / `(root)` → Save.**
-Hard-refresh once after publishing (Ctrl/Cmd + Shift + R) — GitHub's CDN caches for a
-few minutes.
+---
 
-**Custom domain:** add it under Settings → Pages, then at your registrar set `A` records
-for `@` → `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`,
-and a `CNAME` for `www` → `<you>.github.io`. Tick "Enforce HTTPS" afterwards.
+## How payment works
 
-A real domain matters more than usual here: people are about to hand over their salary
-and savings figures and then pay you. `fastkeys.nl` earns that. `<username>.github.io`
-does not.
+```
+/apply
+   |  POST /api/apply
+   v
+validate -> store as 'pending' in D1 -> create Stripe Checkout Session
+   |
+   |  redirect
+   v
+Stripe hosted checkout
+   |
+   +---> POST /api/stripe-webhook  ->  mark 'paid', deliver the application
+   |
+   |  redirect to /success?session_id=cs_...
+   v
+GET /api/status  ->  the page shows only what the server confirms
+```
 
-## 6 · Notes on the application form
+Two properties matter and both are load-bearing:
 
-- The letter template you supplied is reproduced exactly, with one addition: a
-  **situation** dropdown. Your template assumes a salaried professional
-  (*"permanent contract"*), which does not fit a first-year student. The first
-  financial line adapts — student, fixed-term, self-employed, intern — and the rest of
-  the letter is unchanged.
-- Optional lines (savings, guarantor, rent in advance) disappear from the letter when
-  left blank, rather than printing an empty field.
-- The three "no pets / non-smoker / no musical instruments" claims are tick boxes,
-  because the line should not be there if it is not true. A landlord who discovers
-  otherwise at the viewing ends the conversation there.
-- Personality is capped at four words, as your template specifies.
-- Amounts are formatted the Dutch way (€2.500) since Dutch landlords are reading them.
-- The "For us only" box at the bottom never appears in the letter.
-- `apply.html` and `terms.html` are English-only for now. The Dutch home page links
-  through to them. Dutch versions can be added if you want them.
+**The application is delivered by the webhook, never by the browser.** There is
+no client-side code path that causes an application to reach you. Opening
+`/success` by hand therefore accomplishes nothing at all.
 
-## 7 · Everything else
+**The confirmation page holds no state.** It reads a Stripe session id from the
+URL and asks the server about it. A session id is minted by Stripe and only ever
+appears in the redirect after a genuine checkout, so it cannot be guessed or
+constructed. Without one, the page says there is nothing to confirm.
 
-- Colours are taken from the logo: slate `#445162`, gold `#E0A35E`, off-white `#E5E5E5`.
-- Fonts load from Google Fonts; if that fails the pages fall back to system fonts and
-  still look deliberate.
-- All motion switches off for anyone with "reduce motion" enabled. Keyboard navigable,
-  no horizontal scroll down to 360px wide.
-- `apply.html` and `success.html` are set to `noindex` so they stay out of search results.
+The application is written to the database *before* payment, as `pending`. If
+someone abandons checkout the row simply stays pending; it is never delivered and
+never counted.
+
+### The rest of the controls
+
+- Webhook signatures verified with WebCrypto HMAC-SHA256 over the raw body, with
+  a 5 minute timestamp tolerance, so a captured webhook is not replayable later.
+- Stripe event ids recorded, so an event cannot be processed twice inside that
+  window.
+- The status update is guarded on `status <> 'paid'`, so Stripe's retries and the
+  live status check cannot both notify you for one payment.
+- The charge amount comes from `STRIPE_PRICE_ID` on the server. The client has no
+  influence over what is charged.
+- An idempotency key on session creation, so a double-submitted form cannot
+  produce two charges.
+- Every field revalidated server-side against a fixed schema with length caps.
+  Browser validation is a convenience for the applicant, not a control.
+- The landlord letter is **rebuilt** on the server from validated fields rather
+  than accepted as submitted. Trusting the submitted text would make the form an
+  open channel for writing arbitrary content into your inbox.
+- Rate limiting in two tiers: a loose flood guard on all requests, and a tight
+  quota applied only after validation passes, so an applicant who mistypes their
+  email twice is not locked out.
+- Origin check, body size cap, and hashed IPs rather than stored addresses.
+
+---
+
+## Setup
+
+### 1. Database
+
+Jurisdiction is fixed at creation and cannot be changed afterwards. The Terms
+promise EEA storage, so this flag is not optional:
+
+```sh
+npx wrangler d1 create fastkeys --location=weur
+```
+
+Put the returned id into `wrangler.toml`, then:
+
+```sh
+npm run db:migrate
+```
+
+### 2. Stripe
+
+1. Product catalogue: add *FastKeys application service*, EUR 50, one-off.
+2. Copy the **Price ID** (`price_...`) into `wrangler.toml` under `[vars]`.
+3. Developers -> Webhooks -> add endpoint
+   `https://fastkeyshousing.com/api/stripe-webhook`, subscribed to:
+   - `checkout.session.completed`
+   - `checkout.session.async_payment_succeeded`
+   - `checkout.session.expired`
+4. Copy the signing secret (`whsec_...`).
+
+No Payment Link is involved. Checkout sessions are created server-side, which is
+what makes verification possible.
+
+### 3. Secrets
+
+Workers & Pages -> fastkeys -> Settings -> Variables and Secrets, or:
+
+```sh
+npx wrangler pages secret put STRIPE_SECRET_KEY
+npx wrangler pages secret put STRIPE_WEBHOOK_SECRET
+```
+
+| name | kind | required | purpose |
+|---|---|---|---|
+| `STRIPE_SECRET_KEY` | secret | yes | creating and reading sessions |
+| `STRIPE_WEBHOOK_SECRET` | secret | yes | signature verification |
+| `STRIPE_PRICE_ID` | var | yes | what gets charged |
+| `SITE_URL` | var | yes | building redirect URLs |
+| `TELEGRAM_BOT_TOKEN` | secret | no | notification |
+| `TELEGRAM_CHAT_ID` | secret | no | notification |
+| `RESEND_API_KEY` | secret | no | email notification |
+| `NOTIFY_EMAIL` | var | no | where email lands |
+| `NOTIFY_FROM` | var | no | verified sender |
+| `TURNSTILE_SECRET_KEY` | secret | no | bot challenge |
+
+Configure at least one notification channel. Without one, paid applications are
+still stored safely in D1, but nothing tells you they arrived.
+
+Cloudflare withdrew the free MailChannels route for Workers, so email requires
+Resend or a similar provider. Telegram needs no sending domain and is the
+simpler option.
+
+### 4. Project settings
+
+Build output directory: `public`. No build command.
+
+### 5. Turnstile, optional
+
+Set `TURNSTILE_SECRET_KEY` **and** paste the matching site key into
+`TURNSTILE_SITE_KEY` near the bottom of `public/apply.html`, then add the widget
+script. Configure both or neither: the server only enforces the challenge when
+the secret is present, but if the secret is set and the page does not send a
+token, every submission is rejected.
+
+---
+
+## Local development
+
+```sh
+cp .dev.vars.example .dev.vars     # fill in Stripe test keys
+npm install
+npm run db:migrate:local
+npm run dev                        # http://localhost:8788
+```
+
+Forward webhooks to the local server with the Stripe CLI:
+
+```sh
+stripe listen --forward-to http://localhost:8788/api/stripe-webhook
+```
+
+Use the `whsec_` it prints as `STRIPE_WEBHOOK_SECRET` in `.dev.vars`; it differs
+from the dashboard one.
+
+---
+
+## Reconciliation
+
+Every application carries a reference (`FK-XXXXX-XXX`) that is sent to Stripe as
+`client_reference_id` and stamped on the payment intent, so a payment in the
+dashboard can always be matched to a record.
+
+```sh
+# paid but never delivered, which means both notification channels failed
+npx wrangler d1 execute fastkeys --remote --command \
+  "SELECT reference, email, paid_at FROM applications
+    WHERE status='paid' AND notified_at IS NULL ORDER BY paid_at DESC;"
+
+# abandoned checkouts
+npx wrangler d1 execute fastkeys --remote --command \
+  "SELECT reference, created_at FROM applications
+    WHERE status='pending' AND created_at < datetime('now','-2 days');"
+```
+
+---
+
+## Data retention
+
+The applications table holds income, savings, employer and guarantor details.
+Under the AVG that is personal data with no reason to persist indefinitely.
+Nothing in this repository deletes it yet. Decide a retention period, then run
+something like the following on a schedule:
+
+```sql
+DELETE FROM applications
+ WHERE status IN ('pending','expired') AND created_at < datetime('now','-30 days');
+
+DELETE FROM applications
+ WHERE status = 'paid' AND paid_at < datetime('now','-12 months');
+
+DELETE FROM rate_limits   WHERE window_start < strftime('%s','now') - 86400;
+DELETE FROM webhook_events WHERE received_at  < datetime('now','-30 days');
+```
+
+Keep whatever the Belastingdienst requires for invoicing separately, in your
+accounting records rather than here.
+
+Still outstanding before launch: a verwerkersovereenkomst with Stripe and with
+any notification provider, and MFA on every account that can reach this data.
+
+---
+
+## Content still to fill in
+
+Search for these across `public/`:
+
+- `hello@fastkeys.nl` should be `hello@fastkeyshousing.com`
+- WhatsApp `31600000000` appears several times per page
+- `KvK 00000000` in the footer, or delete the line
+- the version date in `terms.html`
+- three placeholder testimonials in the Students section, each reading
+  "Replace with a real name". Publish only real ones, with permission. If there
+  are none yet, delete the whole `<section id="students">` and its nav links.
+
+Placement counts and student numbers were left out deliberately. This audience is
+already primed to expect scams, and one invented figure is the fastest way to
+lose them.
+
+---
+
+## Notes
+
+- `unsafe-inline` remains in the CSP because the CSS and JS are embedded in each
+  page. It still blocks externally loaded script, which is the actual injection
+  route. If those are ever split into separate files, switch to nonces.
+- `js.stripe.com` is deliberately absent from the CSP. Checkout is Stripe's own
+  hosted page, reached by redirect, so no Stripe script runs on this origin.
+- The Functions have no npm dependencies. Stripe is reached over `fetch` and the
+  HMAC is done with WebCrypto directly, which avoids the Node SDK's requirement
+  to wire up `createFetchHttpClient` and `createSubtleCryptoProvider` — omitting
+  either fails at runtime rather than at build time.

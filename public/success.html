@@ -357,7 +357,7 @@ button{font:inherit; color:inherit}
 .chan span{font-size:14px; color:rgba(237,239,242,.55)}
 .chan-primary{border-color:rgba(224,163,94,.45); background:rgba(224,163,94,.08)}
 
-/* floating whatsapp */
+/* floating call to action */
 .wa{
   position:fixed; right:clamp(16px,3vw,28px); bottom:clamp(16px,3vw,28px); z-index:120;
   display:inline-flex; align-items:center; gap:10px; text-decoration:none;
@@ -571,8 +571,7 @@ button{font:inherit; color:inherit}
       <a href="/terms">Terms</a>
     </nav>
     <div class="nav-right">
-      <!-- EDIT: your WhatsApp number -->
-      <a class="btn btn-key" href="https://wa.me/31600000000" target="_blank" rel="noopener">WhatsApp us</a>
+      <a class="btn btn-key" href="mailto:hello@fastkeyshousing.com">Email us</a>
       <button class="burger" id="burger" aria-label="Open menu" aria-expanded="false" aria-controls="navlinks">
         <i></i><i></i><i></i>
       </button>
@@ -594,11 +593,11 @@ button{font:inherit; color:inherit}
       <ol>
         <li>We check your application over and come back with anything that needs sharpening.</li>
         <li>We start applying to properties that fit, under your name, and request viewings.</li>
-        <li>You hear from us as soon as a landlord responds — normally on WhatsApp.</li>
+        <li>You hear from us by email as soon as a landlord responds.</li>
         <li>When you find a place, we read the contract before you sign, and stay reachable for a month after.</li>
       </ol>
       <p style="margin-top:22px">
-        <a class="btn btn-key" href="https://wa.me/31600000000" target="_blank" rel="noopener">Message us on WhatsApp <span class="arw">→</span></a>
+        <a class="btn btn-key" href="mailto:hello@fastkeyshousing.com">Email us <span class="arw">&rarr;</span></a>
       </p>
     </div>
 
@@ -640,7 +639,7 @@ button{font:inherit; color:inherit}
   if(!/^cs_[A-Za-z0-9_]{10,120}$/.test(sessionId)){
     show('Nothing to confirm here',
          'This page confirms a completed payment, and there is no payment attached to this link. ' +
-         'If you have paid, message us on WhatsApp with your reference and we will match it straight away. ' +
+         'If you have paid, email us at hello@fastkeyshousing.com with your reference and we will match it straight away. ' +
          'Otherwise, <a href="/apply">start your application</a>.');
     return;
   }
@@ -687,12 +686,12 @@ button{font:inherit; color:inherit}
 
       show('We cannot find that payment',
            'This link does not match a payment we hold. If money has left your account, ' +
-           'message us on WhatsApp with the receipt Stripe emailed you and we will sort it out today.');
+           'email us at hello@fastkeyshousing.com with the receipt Stripe emailed you and we will sort it out today.');
     }).catch(function(){
       if(attempt < 8){ setTimeout(poll, 2500); return; }
       show('We could not reach our server',
            'Your payment is safe either way \u2014 Stripe has emailed you a receipt. ' +
-           'Message us on WhatsApp with that receipt and we will confirm from our side.');
+           'Email us at hello@fastkeyshousing.com with that receipt and we will confirm from our side.');
     });
   }
 
