@@ -442,12 +442,16 @@ button{font:inherit; color:inherit}
 .hint{font-size:13px; color:rgba(237,239,242,.42); margin-top:-2px}
 .field input[type="number"]{-moz-appearance:textfield}
 .field input::-webkit-outer-spin-button,.field input::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
-.euro{position:relative}
-.euro input{padding-left:34px}
-.euro::before{content:"€"; position:absolute; left:16px; top:50%; transform:translateY(-50%);
+/* The euro prefix hangs off a wrapper around the input, not off .field. It used
+   to be absolutely positioned against .field with bottom:15px, which held only
+   while the field contained exactly a label and an input; the validation message
+   made the field taller and pushed the symbol out of the box and into the error
+   text. Anchored here it stays centred on the input whatever else the field
+   grows to contain. */
+.euro-in{position:relative; display:grid}
+.euro-in::before{content:"€"; position:absolute; left:16px; top:50%; transform:translateY(-50%);
   color:var(--key); font-size:16px; pointer-events:none; z-index:1}
-.field.euro{position:relative}
-.field.euro::before{top:auto; bottom:15px; transform:none}
+.euro input{padding-left:34px}
 
 /* personality chips */
 .chips{display:flex; flex-wrap:wrap; gap:9px}
@@ -676,11 +680,11 @@ button{font:inherit; color:inherit}
       <div class="two" style="margin-top:16px">
         <div class="field euro">
           <label for="income">Monthly income</label>
-          <input id="income" name="income" type="text" inputmode="numeric" placeholder="2500" required>
+          <div class="euro-in"><input id="income" name="income" type="text" inputmode="numeric" placeholder="2500" required></div>
         </div>
         <div class="field euro">
           <label for="budget">Monthly budget</label>
-          <input id="budget" name="budget" type="text" inputmode="numeric" placeholder="800" required>
+          <div class="euro-in"><input id="budget" name="budget" type="text" inputmode="numeric" placeholder="800" required></div>
         </div>
       </div>
       <p class="hint" style="margin-top:8px">Landlords look for an income of roughly three to four times the rent. If yours is lower, a guarantor does the same job — fill that in below.</p>
@@ -698,13 +702,13 @@ button{font:inherit; color:inherit}
         </div>
         <div class="field euro">
           <label for="savings">Savings (optional)</label>
-          <input id="savings" name="savings" type="text" inputmode="numeric" placeholder="Leave blank to omit">
+          <div class="euro-in"><input id="savings" name="savings" type="text" inputmode="numeric" placeholder="Leave blank to omit"></div>
         </div>
       </div>
 
       <div class="field euro" style="margin-top:16px">
         <label for="gross" id="grossLabel">Guarantor's monthly income (if any)</label>
-        <input id="gross" name="gross" type="text" inputmode="numeric" placeholder="Often a parent — leave blank to omit">
+        <div class="euro-in"><input id="gross" name="gross" type="text" inputmode="numeric" placeholder="Often a parent — leave blank to omit"></div>
       </div>
     </fieldset>
 

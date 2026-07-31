@@ -35,12 +35,21 @@ export async function onRequestGet({ request, env, waitUntil }) {
   const limit = await rateLimit(env.DB, `status:${ipHash}`, 60, 300);
   if (!limit.ok) return fail(429, 'rate_limited');
 
-  const row = await env.DB.prepare(
-    `SELECT id, reference, name, status, payload, letter
-       FROM applications WHERE stripe_session_id = ?1`
-  )
-    .bind(sessionId)
-    .first();
+  let row;
+  try {
+    row = await env.DB.prepare(
+      `SELECT id, reference, name, status, payload, letter
+         FROM applications WHERE stripe_session_id = ?1`
+    )
+      .bind(sessionId)
+      .first();
+  } catch (err) {
+    /* Without this the runtime returns a raw stack trace, which leaks file paths
+     * and internals from a public endpoint. It must also not be reported as
+     * 'unknown': that reads as "no such payment" to someone who has just paid.
+     * A 503 lets the page keep polling and then fall back to its receipt advice. */
+    return fail(503, 'temporarily_unavailable', String(err));
+  }
 
   if (!row) return json({ status: 'unknown' }, 200);
   if (row.status === 'paid') return json(publicView(row, 'paid'), 200);
