@@ -1,0 +1,16 @@
+{
+  "name": "fastkeys",
+  "private": true,
+  "type": "module",
+  "description": "FastKeys Housing - static site plus Cloudflare Pages Functions",
+  "scripts": {
+    "dev": "wrangler pages dev --local",
+    "db:migrate:local": "wrangler d1 migrations apply fastkeys --local",
+    "db:migrate": "wrangler d1 migrations apply fastkeys --remote",
+    "tail": "wrangler pages deployment tail",
+    "check:telegram": "node scripts/check-telegram.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,28 @@
+/*
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=(), interest-cohort=()
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  Content-Security-Policy: default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-src https://challenges.cloudflare.com; upgrade-insecure-requests
+
+# 'unsafe-inline' is here because the CSS and JS are embedded in each page. That
+# was the right call for a single-file static site and it still blocks the actual
+# injection route, which is externally loaded script. If the CSS and JS are ever
+# split back out into files, replace it with nonces.
+#
+# js.stripe.com is deliberately absent: checkout is Stripe's own hosted page,
+# reached by redirect, so no Stripe script ever runs on this origin.
+
+# Pages holding personal or financial detail must never sit in a shared cache.
+/apply
+  Cache-Control: no-store, max-age=0
+/success
+  Cache-Control: no-store, max-age=0
+/api/*
+  Cache-Control: no-store, max-age=0
+
+/*.png
+  Cache-Control: public, max-age=31536000, immutable
