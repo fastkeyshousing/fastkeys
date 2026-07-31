@@ -502,25 +502,6 @@ button{font:inherit; color:inherit}
 .err{color:#F0A9A9; font-size:14px; margin-top:12px; display:none}
 .err.show{display:block}
 
-/* The two consent rows above the pay button. These previously carried a .legal
-   class that collided with the Terms page rule of the same name in this shared
-   stylesheet, inheriting 40px/70px block padding. Spacing is set directly rather
-   than with an adjacent-sibling rule, because the validation message element is
-   injected between the two rows and would break the adjacency. */
-.consent{padding-block:8px}
-
-/* per-field validation */
-.field-err,.group-err{display:none; gap:7px; align-items:flex-start; margin-top:1px;
-  color:#F4A9A9; font-size:13px; line-height:1.45; font-weight:500}
-.field-err.show,.group-err.show{display:flex}
-.field-err svg,.group-err svg{flex:none; margin-top:2px}
-.group-err{margin-top:14px}
-.field.invalid input,.field.invalid select,.field.invalid textarea{
-  border-color:#C4666A; background:rgba(196,102,106,.08)}
-.field.invalid label{color:#F4A9A9}
-.chips.invalid{outline:1.5px solid rgba(196,102,106,.5); outline-offset:10px; border-radius:14px}
-.consent.invalid .box{border-color:#C4666A; background:rgba(196,102,106,.12)}
-
 /* success page */
 .done{max-width:660px; margin-inline:auto; text-align:center; padding-block:clamp(70px,10vw,130px)}
 .done .tick{width:74px; height:74px; border-radius:99px; margin:0 auto 30px; display:grid; place-items:center;
@@ -568,7 +549,7 @@ button{font:inherit; color:inherit}
 
 @media (max-width:980px){
   .apply-grid{grid-template-columns:1fr}
-  .rail{position:static}
+  .rail{position:static; order:-1}
   .preview pre{max-height:340px}
   .legal-grid{grid-template-columns:1fr}
   .toc{position:static; border-bottom:1px solid var(--line-light); padding-bottom:18px}
@@ -800,13 +781,13 @@ button{font:inherit; color:inherit}
         <li><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>One month of support after you sign</li>
       </ul>
 
-      <label class="checkrow consent">
+      <label class="checkrow legal">
         <input type="checkbox" id="terms">
         <span class="box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2A2116" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
         <span>I have read and accept the <a href="/terms" target="_blank" rel="noopener">Terms and Conditions</a>, and I agree that FastKeys may share the details above with landlords and letting agents in order to apply on my behalf.</span>
       </label>
 
-      <label class="checkrow consent">
+      <label class="checkrow legal">
         <input type="checkbox" id="startNow">
         <span class="box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2A2116" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
         <span>I ask FastKeys to begin work immediately, and I understand my 14-day right of withdrawal ends once the service has been fully performed.</span>
@@ -1162,135 +1143,42 @@ button{font:inherit; color:inherit}
   });
 
   /* ---------- validation + payment handoff ---------- */
-  /* Validation rules, kept deliberately in step with lib/validate.js on the
-     server. When they drift, the applicant passes here and is then rejected by
-     the API with a generic message and no idea which field was wrong. */
-  var WARN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-    'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5"/><path d="M12 16.2v.1"/></svg>';
-
-  function num(id){ return Number(String(val(id)).replace(/[^\d.]/g, '')); }
-
-  var RULES = [
-    {id:'name',   ok:function(){ return val('name').length >= 2; },
-                  msg:'Please enter your full name.'},
-    {id:'email',  ok:function(){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val('email')); },
-                  msg:'That email address does not look right. Check for a typo.'},
-    {id:'phone',  ok:function(){ return /^[+()\d][\d\s().-]{5,24}$/.test(val('phone')); },
-                  msg:'Please enter a phone number we can reach you on, including the country code.'},
-    {id:'city',   ok:function(){ return val('city').length >= 2; },
-                  msg:'Please tell us which city you are looking in.'},
-    {id:'role',   ok:function(){ return val('role').length >= 2; },
-                  msg:'Please tell us what you do — your job title or field of study.'},
-    {id:'org',    ok:function(){ return val('status') === 'self' || val('org').length >= 2; },
-                  msg:'Please name your employer or university.'},
-    {id:'income', ok:function(){ return num('income') > 0; },
-                  msg:'Please enter your monthly income as a number, for example 2500.'},
-    {id:'budget', ok:function(){ return num('budget') > 0; },
-                  msg:'Please enter your monthly budget as a number, for example 900.'},
-    {id:'from',   ok:function(){ return !!val('from'); },
-                  msg:'Please pick the date you can move in.'},
-    {id:'hobbies',ok:function(){ return val('hobbies').length >= 3; },
-                  msg:'Please write a line about your hobbies or daily routine. Landlords do read this.'},
-    {id:'traits', ok:function(){ return traits.length >= 3; },
-                  msg:'Please pick at least three words that describe you.',
-                  target:function(){ return document.querySelector('.chips'); }},
-    {id:'terms',  ok:function(){ return on('terms'); },
-                  msg:'Please confirm you accept the Terms and Conditions.'},
-    {id:'startNow', ok:function(){ return on('startNow'); },
-                  msg:'Please confirm you want us to begin work straight away.'}
+  var REQUIRED = [
+    ['name',  'your name'],
+    ['email', 'your email address'],
+    ['phone', 'your phone number'],
+    ['city',  'the city you are looking in'],
+    ['role',  'what you do'],
+    ['income','your monthly income'],
+    ['budget','your budget'],
+    ['from',  'your available-from date']
   ];
 
-  /* The element the red message is attached to and the outline is drawn around. */
-  function targetOf(rule){
-    if(rule.target) return rule.target();
-    var input = $('#' + rule.id);
-    if(!input) return null;
-    return input.closest('.field') || input.closest('.checkrow') || input;
-  }
-
-  /* One message element per rule, created once so validate() only toggles. */
-  var slots = {};
-  RULES.forEach(function(rule){
-    var target = targetOf(rule);
-    if(!target) return;
-    var p = document.createElement('p');
-    p.className = target.classList.contains('field') ? 'field-err' : 'group-err';
-    p.id = 'fe-' + rule.id;
-    p.setAttribute('role', 'alert');
-    if(target.classList.contains('field')) target.appendChild(p);
-    else target.parentNode.insertBefore(p, target.nextSibling);
-    slots[rule.id] = {el: p, target: target};
-  });
-
-  function clearField(id){
-    var s = slots[id];
-    if(!s) return;
-    s.el.classList.remove('show');
-    s.el.innerHTML = '';
-    s.target.classList.remove('invalid');
-    var input = $('#' + id);
-    if(input) input.removeAttribute('aria-invalid');
-  }
-
-  function markField(rule){
-    var s = slots[rule.id];
-    if(!s) return null;
-    s.el.innerHTML = WARN + '<span>' + rule.msg + '</span>';
-    s.el.classList.add('show');
-    s.target.classList.add('invalid');
-    var input = $('#' + rule.id);
-    if(input) input.setAttribute('aria-invalid', 'true');
-    return s.target;
-  }
-
-  /* Clearing on the next edit matters: leaving the red state until the next
-     submit makes the page feel like it is not listening. */
-  RULES.forEach(function(rule){
-    var input = $('#' + rule.id);
-    if(input) input.addEventListener('input', function(){ clearField(rule.id); });
-    if(input) input.addEventListener('change', function(){ clearField(rule.id); });
-  });
-  document.querySelectorAll('.chip').forEach(function(chip){
-    chip.addEventListener('click', function(){ clearField('traits'); });
-  });
-
-  /* Form-level message, used for network and payment errors too. */
-  function fail(msg){
+  function fail(msg, focusId){
     var e = $('#formError');
     e.textContent = msg;
     e.classList.add('show');
+    if(focusId && $('#'+focusId)){
+      $('#'+focusId).focus();
+      $('#'+focusId).scrollIntoView({block:'center', behavior:'smooth'});
+    }
     return false;
   }
 
   function validate(){
     $('#formError').classList.remove('show');
-    RULES.forEach(function(r){ clearField(r.id); });
-
-    /* Every rule is checked, not just the first to fail, so someone with three
-       problems is told about all three rather than discovering them one submit
-       at a time. */
-    var first = null, count = 0;
-    RULES.forEach(function(rule){
-      if(rule.ok()) return;
-      var el = markField(rule);
-      count++;
-      if(!first) first = el;
-    });
-
-    if(!count) return true;
-
-    fail(count === 1
-      ? 'One field needs your attention — see the message above.'
-      : count + ' fields need your attention — see the messages above.');
-
-    if(first){
-      first.scrollIntoView({block:'center', behavior:'smooth'});
-      var input = first.querySelector('input,select,textarea,button');
-      /* preventScroll stops the browser fighting the smooth scroll above. */
-      if(input && input.focus) { try { input.focus({preventScroll:true}); } catch(e){ input.focus(); } }
+    for(var i = 0; i < REQUIRED.length; i++){
+      if(!val(REQUIRED[i][0])) return fail('Please fill in ' + REQUIRED[i][1] + '.', REQUIRED[i][0]);
     }
-    return false;
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val('email')))
+      return fail('That email address does not look right.', 'email');
+    if(traits.length < 3)
+      return fail('Please pick at least three words that describe you.', null);
+    if(!on('terms'))
+      return fail('Please confirm you have read and accept the Terms and Conditions.', 'terms');
+    if(!on('startNow'))
+      return fail('Please confirm you want us to begin work straight away.', 'startNow');
+    return true;
   }
 
   function reference(){
