@@ -54,6 +54,7 @@ export async function onRequestGet({ request, env, waitUntil }) {
   if (!row) return json({ status: 'unknown' }, 200);
   if (row.status === 'paid') return json(publicView(row, 'paid'), 200);
   if (row.status === 'expired') return json(publicView(row, 'expired'), 200);
+  if (row.status === 'failed') return json(publicView(row, 'failed'), 200);
 
   /* Still pending. Ask Stripe directly rather than making the applicant wait on
    * webhook delivery. */

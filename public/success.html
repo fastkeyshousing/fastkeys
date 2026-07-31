@@ -679,6 +679,16 @@ button{font:inherit; color:inherit}
         return;
       }
 
+      if(d.status === 'failed'){
+        show('That payment did not go through',
+             'Your bank did not complete the payment, so nothing has been charged and no ' +
+             'application has been submitted. This happens with direct debit and bank transfers ' +
+             'more often than with cards. You can <a href="/apply">try again</a>, and your ' +
+             'answers are not lost \u2014 quote the reference below if you would rather we sorted it out.',
+             d.reference);
+        return;
+      }
+
       if(d.status === 'expired'){
         show('That checkout expired',
              'The payment window closed before it completed, so nothing was charged. ' +

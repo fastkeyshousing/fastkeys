@@ -513,10 +513,15 @@ button{font:inherit; color:inherit}
    injected between the two rows and would break the adjacency. */
 .consent{padding-block:8px}
 
-/* per-field validation */
+/* Per-field validation.
+   Once a field has produced a message its slot keeps that height even when the
+   message is hidden, so correcting one field does not shuffle everything below
+   it up the page. Fields that have never errored stay collapsed, so the form is
+   no taller than it needs to be. */
 .field-err,.group-err{display:none; gap:7px; align-items:flex-start; margin-top:1px;
   color:#F4A9A9; font-size:13px; line-height:1.45; font-weight:500}
-.field-err.show,.group-err.show{display:flex}
+.field-err.reserved,.group-err.reserved{display:flex; visibility:hidden}
+.field-err.show,.group-err.show{display:flex; visibility:visible}
 .field-err svg,.group-err svg{flex:none; margin-top:2px}
 .group-err{margin-top:14px}
 .field.invalid input,.field.invalid select,.field.invalid textarea{
@@ -1227,11 +1232,14 @@ button{font:inherit; color:inherit}
     slots[rule.id] = {el: p, target: target};
   });
 
+  /* The message text is deliberately left in place. Emptying it would collapse
+     the slot and pull the rest of the form upwards the moment someone fixed a
+     field, which reads as the page jumping away from them mid-correction. */
   function clearField(id){
     var s = slots[id];
     if(!s) return;
     s.el.classList.remove('show');
-    s.el.innerHTML = '';
+    if(s.el.innerHTML) s.el.classList.add('reserved');
     s.target.classList.remove('invalid');
     var input = $('#' + id);
     if(input) input.removeAttribute('aria-invalid');
@@ -1241,6 +1249,7 @@ button{font:inherit; color:inherit}
     var s = slots[rule.id];
     if(!s) return null;
     s.el.innerHTML = WARN + '<span>' + rule.msg + '</span>';
+    s.el.classList.remove('reserved');
     s.el.classList.add('show');
     s.target.classList.add('invalid');
     var input = $('#' + rule.id);

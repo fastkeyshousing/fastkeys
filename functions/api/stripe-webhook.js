@@ -8,12 +8,13 @@
  * parsed as anything meaningful. */
 
 import { methodNotAllowed } from '../../lib/http.js';
-import { verifyWebhook } from '../../lib/stripe.js';
-import { notifyPaid } from '../../lib/notify.js';
+import { verifyWebhook, retrievePaymentIntent } from '../../lib/stripe.js';
+import { notifyPaid, notifyPaymentFailed } from '../../lib/notify.js';
 
 const HANDLED = new Set([
   'checkout.session.completed',
   'checkout.session.async_payment_succeeded',
+  'checkout.session.async_payment_failed',
   'checkout.session.expired',
 ]);
 
@@ -128,6 +129,53 @@ export async function onRequestPost({ request, env, waitUntil }) {
   if (!session?.id) return new Response('no session', { status: 200 });
 
   try {
+    /* A delayed payment method reported back that it did not clear. Only a
+     * pending row moves: if the session somehow already settled, the money is
+     * the authority and we leave it alone. */
+    if (event.type === 'checkout.session.async_payment_failed') {
+      const update = await env.DB.prepare(
+        `UPDATE applications
+            SET status = 'failed', failed_at = ?1
+          WHERE stripe_session_id = ?2 AND status = 'pending'`
+      )
+        .bind(new Date().toISOString(), session.id)
+        .run();
+
+      if ((update.meta?.changes ?? 0) === 0) return new Response('ok', { status: 200 });
+
+      const row = await env.DB.prepare(
+        `SELECT reference, name, email FROM applications WHERE stripe_session_id = ?1`
+      )
+        .bind(session.id)
+        .first();
+
+      const tell = (async () => {
+        let reason = null;
+        try {
+          if (typeof session.payment_intent === 'string') {
+            const pi = await retrievePaymentIntent(env, session.payment_intent);
+            reason = pi?.last_payment_error?.message || null;
+          }
+        } catch (err) {
+          console.error('[webhook] could not read failure reason:', err);
+        }
+        if (reason) {
+          await env.DB.prepare(`UPDATE applications SET failure_reason = ?1 WHERE stripe_session_id = ?2`)
+            .bind(reason, session.id).run().catch(() => {});
+        }
+        if (row) {
+          await notifyPaymentFailed(env, {
+            reference: row.reference, name: row.name, email: row.email, reason,
+          });
+        }
+      })();
+
+      if (typeof waitUntil === 'function') waitUntil(tell);
+      else await tell;
+
+      return new Response('ok', { status: 200 });
+    }
+
     if (event.type === 'checkout.session.expired') {
       await env.DB.prepare(
         `UPDATE applications SET status = 'expired'
