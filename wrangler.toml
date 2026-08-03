@@ -7,7 +7,14 @@ pages_build_output_dir = "public"
 # `npx wrangler pages secret put <NAME>`.
 [vars]
 SITE_URL = "https://fastkeyshousing.com"
-STRIPE_PRICE_ID = "price_1Tz3FmAiFErDFrhod3Xg44m0"
+
+# The only amount charged at checkout: the EUR 1.00 spot confirmation. The
+# service fee (one month's rent) cannot live here, because its amount is not
+# known until the applicant signs a lease. Checkout saves the card so that fee
+# can be taken later; nothing takes it automatically yet.
+# Live price on product prod_V0NqLeN8SpuYjQ "FastKeys spot confirmation".
+# The retired EUR 50.00 price was price_1Tz3FmAiFErDFrhod3Xg44m0.
+STRIPE_CONFIRMATION_PRICE_ID = "price_1U0N5PAiFErDFrho5U569Ja4"
 
 [[d1_databases]]
 binding = "DB"

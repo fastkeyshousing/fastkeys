@@ -38,7 +38,7 @@ export async function onRequestPost(context) {
   const { request, env } = context;
   const siteUrl = (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '');
 
-  for (const required of ['STRIPE_SECRET_KEY', 'STRIPE_PRICE_ID']) {
+  for (const required of ['STRIPE_SECRET_KEY', 'STRIPE_CONFIRMATION_PRICE_ID']) {
     if (!env[required]) return fail(503, 'not_configured', `${required} is not set`);
   }
   if (!env.DB) return fail(503, 'not_configured', 'D1 binding DB is not bound');
@@ -51,7 +51,7 @@ export async function onRequestPost(context) {
   }
 
   const ip = clientIp(request);
-  const ipHash = await sha256Hex(`${ip}:${env.STRIPE_PRICE_ID}`);
+  const ipHash = await sha256Hex(`${ip}:${env.STRIPE_CONFIRMATION_PRICE_ID}`);
 
   /* A loose flood guard covering every request, valid or not. Set high enough
    * that a person correcting mistakes in the form never meets it. */

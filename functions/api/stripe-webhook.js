@@ -30,20 +30,27 @@ async function markPaid(env, session, waitUntil) {
 
   /* The status guard makes the update idempotent. Stripe retries webhooks and may
    * deliver both completed and async_payment_succeeded for the same session;
-   * only the first one to arrive reports a changed row. */
+   * only the first one to arrive reports a changed row.
+   *
+   * stripe_customer is the whole point of the euro: it is where the saved card
+   * lives, and the only durable link from this application to the payment
+   * method the service fee will eventually be taken from. It arrives on the
+   * session already, so keeping it costs no extra call. */
   const update = await env.DB.prepare(
     `UPDATE applications
         SET status = 'paid',
             paid_at = ?1,
             stripe_payment_intent = ?2,
-            amount_total = ?3,
-            currency = ?4
-      WHERE stripe_session_id = ?5
+            stripe_customer = ?3,
+            amount_total = ?4,
+            currency = ?5
+      WHERE stripe_session_id = ?6
         AND status <> 'paid'`
   )
     .bind(
       now,
       typeof session.payment_intent === 'string' ? session.payment_intent : null,
+      typeof session.customer === 'string' ? session.customer : null,
       session.amount_total ?? null,
       session.currency ?? null,
       session.id

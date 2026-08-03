@@ -273,6 +273,11 @@ button{font:inherit; color:inherit}
   background:rgba(224,163,94,.16); color:var(--key-dark); margin-bottom:20px}
 .do-card h3{font-size:21px; font-weight:600; margin-bottom:10px}
 .do-card p{font-size:15.5px; color:#525E6D; line-height:1.62}
+/* the payoff card: same geometry as its siblings, gold-lit so it reads as the promise */
+.do-card.guarantee{background:linear-gradient(158deg,#FFF7EC,#FFFDFA); border-color:rgba(224,163,94,.45)}
+.do-card.guarantee::after{transform:scaleX(1)}
+.do-card.guarantee h3{color:var(--key-dark)}
+.do-card.guarantee p b{color:var(--key-dark); font-weight:600}
 
 /* how it works — a real sequence, so it is numbered */
 .steps{position:relative; margin-top:clamp(38px,5vw,64px)}
