@@ -497,6 +497,23 @@ button{font:inherit; color:inherit}
 .pay li svg{flex:none; margin-top:4px; color:var(--key)}
 .pay .btn{width:100%; justify-content:center}
 .pay-note{margin-top:14px; font-size:12.8px; color:rgba(237,239,242,.45); text-align:center; line-height:1.55}
+
+/* reference panel */
+.refbox{margin:26px auto 0; max-width:340px}
+.refbox-lead{font-size:13.5px; color:var(--key); font-weight:600; margin-bottom:10px; line-height:1.5}
+.refbox-btn{display:flex; align-items:center; justify-content:center; gap:12px; width:100%;
+  background:rgba(224,163,94,.12); border:1.5px dashed rgba(224,163,94,.55); border-radius:14px;
+  padding:15px 18px; cursor:pointer; transition:background .2s var(--ease), border-color .2s var(--ease)}
+.refbox-btn:hover{background:rgba(224,163,94,.2); border-color:var(--key)}
+.refbox-btn:focus-visible{outline:2px solid var(--key); outline-offset:3px}
+.refbox-code{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace; font-size:19px;
+  font-weight:600; letter-spacing:.06em; color:var(--key-lift)}
+.refbox-icon{display:grid; place-items:center; color:rgba(224,163,94,.75); flex:none}
+.refbox-btn.copied{background:rgba(126,196,140,.16); border-style:solid; border-color:rgba(126,196,140,.7)}
+.refbox-btn.copied .refbox-code{color:#A9DDB5}
+.refbox-btn.copied .refbox-icon{color:#A9DDB5}
+.refbox-hint{margin-top:9px; font-size:12.5px; color:rgba(237,239,242,.5); line-height:1.5}
+.refbox-hint.ok{color:#A9DDB5}
 .err{color:#F0A9A9; font-size:14px; margin-top:12px; display:none}
 .err.show{display:block}
 
@@ -585,7 +602,20 @@ button{font:inherit; color:inherit}
     </div>
     <h1 id="doneTitle">Confirming your €1 spot…</h1>
     <p id="doneBody">One moment while we check this with Stripe.</p>
-    <p class="pay-note" id="refLine"></p>
+    <!-- The reference is the only thing tying a person to their application in
+         any support conversation, so it gets a real affordance rather than a
+         line of small print. Hidden until there is something worth copying. -->
+    <div class="refbox" id="refBox" hidden>
+      <p class="refbox-lead">Save this now. Quote it in any email to us.</p>
+      <button type="button" class="refbox-btn" id="refCopy" aria-describedby="refHint">
+        <span class="refbox-code" id="refCode"></span>
+        <span class="refbox-icon" aria-hidden="true">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        </span>
+      </button>
+      <p class="refbox-hint" id="refHint">Tap to copy</p>
+    </div>
+    <p class="pay-note" id="refLine" hidden></p>
 
     <div class="next" id="next" style="display:none">
       <h3>What happens next</h3>
@@ -632,11 +662,65 @@ button{font:inherit; color:inherit}
   var title = $('#doneTitle'), body = $('#doneBody'),
       refLine = $('#refLine'), next = $('#next');
 
+  var refBox = $('#refBox'), refCode = $('#refCode'),
+      refCopy = $('#refCopy'), refHint = $('#refHint');
+
   function show(h, p, ref){
     title.textContent = h;
     body.innerHTML = p;
-    refLine.textContent = ref ? ('Reference ' + ref) : '';
+    if(ref){
+      refCode.textContent = ref;
+      refBox.hidden = false;
+      refLine.hidden = true;
+    } else {
+      refBox.hidden = true;
+    }
   }
+
+  /* execCommand is the fallback because navigator.clipboard needs a secure
+     context, and a person who cannot copy the reference has no way to identify
+     themselves to us later. */
+  function copyText(text){
+    if(navigator.clipboard && window.isSecureContext){
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function(resolve, reject){
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch(e){ ok = false; }
+      document.body.removeChild(ta);
+      ok ? resolve() : reject();
+    });
+  }
+
+  var revert;
+  refCopy.addEventListener('click', function(){
+    copyText(refCode.textContent).then(function(){
+      refCopy.classList.add('copied');
+      refHint.classList.add('ok');
+      refHint.textContent = 'Copied to your clipboard';
+    }).catch(function(){
+      /* Selecting it at least lets them copy by hand. */
+      refHint.textContent = 'Press Ctrl+C or Cmd+C to copy';
+      var r = document.createRange();
+      r.selectNodeContents(refCode);
+      var s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+    });
+    clearTimeout(revert);
+    revert = setTimeout(function(){
+      refCopy.classList.remove('copied');
+      refHint.classList.remove('ok');
+      refHint.textContent = 'Tap to copy';
+    }, 3200);
+  });
 
   var sessionId = new URLSearchParams(window.location.search).get('session_id') || '';
 

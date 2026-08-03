@@ -514,16 +514,21 @@ button{font:inherit; color:inherit}
 .consent{padding-block:8px}
 
 /* Per-field validation.
-   Once a field has produced a message its slot keeps that height even when the
-   message is hidden, so correcting one field does not shuffle everything below
-   it up the page. Fields that have never errored stay collapsed, so the form is
-   no taller than it needs to be. */
-.field-err,.group-err{display:none; gap:7px; align-items:flex-start; margin-top:1px;
+   The slot animates between zero and its natural height rather than appearing
+   and vanishing outright. An earlier version reserved the space permanently to
+   stop the page jumping, which worked but left every corrected field taller
+   than its neighbours for the rest of the session. Transitioning the height
+   returns the field to its normal size without the jolt. */
+.field-err,.group-err{display:grid; grid-template-rows:0fr; margin-top:0; opacity:0;
+  transition:grid-template-rows .26s var(--ease), margin-top .26s var(--ease), opacity .18s linear}
+.field-err.show,.group-err.show{grid-template-rows:1fr; margin-top:7px; opacity:1}
+.group-err.show{margin-top:12px}
+.fe-in{display:flex; gap:7px; align-items:flex-start; min-height:0; overflow:hidden;
   color:#F4A9A9; font-size:13px; line-height:1.45; font-weight:500}
-.field-err.reserved,.group-err.reserved{display:flex; visibility:hidden}
-.field-err.show,.group-err.show{display:flex; visibility:visible}
-.field-err svg,.group-err svg{flex:none; margin-top:2px}
-.group-err{margin-top:14px}
+.fe-in svg{flex:none; margin-top:2px}
+@media (prefers-reduced-motion:reduce){
+  .field-err,.group-err{transition:none}
+}
 .field.invalid input,.field.invalid select,.field.invalid textarea{
   border-color:#C4666A; background:rgba(196,102,106,.08)}
 .field.invalid label{color:#F4A9A9}
@@ -729,6 +734,8 @@ button{font:inherit; color:inherit}
         </div>
         <div class="field">
           <label for="from">Available from</label>
+          <!-- min is set from the browser clock on load, so it stays correct
+               without a redeploy. The server checks the same thing again. -->
           <input id="from" name="from" type="date" required>
         </div>
       </div>
@@ -1180,6 +1187,19 @@ button{font:inherit; color:inherit}
 
   function num(id){ return Number(String(val(id)).replace(/[^\d.]/g, '')); }
 
+  /* A move-in date in the past is always a mistake, and one that reaches a
+     landlord looking careless. The picker is bounded so it cannot be chosen,
+     and the rule below catches anything typed or pasted in. */
+  var today = new Date();
+  var pad = function(n){ return (n < 10 ? '0' : '') + n; };
+  var iso = function(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); };
+  var MIN_FROM = iso(today);
+  var MAX_FROM = iso(new Date(today.getFullYear() + 2, today.getMonth(), today.getDate()));
+  (function(){
+    var f = $('#from');
+    if(f){ f.min = MIN_FROM; f.max = MAX_FROM; }
+  })();
+
   var RULES = [
     {id:'name',   ok:function(){ return val('name').length >= 2; },
                   msg:'Please enter your full name.'},
@@ -1197,8 +1217,13 @@ button{font:inherit; color:inherit}
                   msg:'Please enter your monthly income as a number, for example 2500.'},
     {id:'budget', ok:function(){ return num('budget') > 0; },
                   msg:'Please enter your monthly budget as a number, for example 900.'},
-    {id:'from',   ok:function(){ return !!val('from'); },
-                  msg:'Please pick the date you can move in.'},
+    {id:'from',   ok:function(){ var v = val('from'); return !!v && v >= MIN_FROM && v <= MAX_FROM; },
+                  msg:function(){
+                    var v = val('from');
+                    if(!v) return 'Please pick the date you can move in.';
+                    if(v < MIN_FROM) return 'That date has already passed. Please pick today or a date in the future.';
+                    return 'That date looks too far ahead. Please check the year.';
+                  }},
     {id:'hobbies',ok:function(){ return val('hobbies').length >= 3; },
                   msg:'Please write a line about your hobbies or daily routine. Landlords do read this.'},
     {id:'traits', ok:function(){ return traits.length >= 3; },
@@ -1232,14 +1257,12 @@ button{font:inherit; color:inherit}
     slots[rule.id] = {el: p, target: target};
   });
 
-  /* The message text is deliberately left in place. Emptying it would collapse
-     the slot and pull the rest of the form upwards the moment someone fixed a
-     field, which reads as the page jumping away from them mid-correction. */
+  /* The text is left in the DOM while the slot closes, otherwise the message
+     would vanish instantly and only the empty box would animate. */
   function clearField(id){
     var s = slots[id];
     if(!s) return;
     s.el.classList.remove('show');
-    if(s.el.innerHTML) s.el.classList.add('reserved');
     s.target.classList.remove('invalid');
     var input = $('#' + id);
     if(input) input.removeAttribute('aria-invalid');
@@ -1248,8 +1271,8 @@ button{font:inherit; color:inherit}
   function markField(rule){
     var s = slots[rule.id];
     if(!s) return null;
-    s.el.innerHTML = WARN + '<span>' + rule.msg + '</span>';
-    s.el.classList.remove('reserved');
+    var text = typeof rule.msg === 'function' ? rule.msg() : rule.msg;
+    s.el.innerHTML = '<span class="fe-in">' + WARN + '<span>' + text + '</span></span>';
     s.el.classList.add('show');
     s.target.classList.add('invalid');
     var input = $('#' + rule.id);
