@@ -8,7 +8,8 @@
  * parsed as anything meaningful. */
 
 import { methodNotAllowed } from '../../lib/http.js';
-import { verifyWebhook, retrievePaymentIntent } from '../../lib/stripe.js';
+import { verifyWebhook, retrievePaymentIntent, receiptUrlFor } from '../../lib/stripe.js';
+import { sendApplicantEmail } from '../../lib/applicant-email.js';
 import { notifyPaid, notifyPaymentFailed } from '../../lib/notify.js';
 
 const HANDLED = new Set([
@@ -74,11 +75,23 @@ async function markPaid(env, session, waitUntil) {
   /* Notification runs after the response is returned. Stripe expects a prompt
    * 2xx, and a slow Telegram or Resend call must not push us into a retry. */
   const deliver = (async () => {
+    const application = JSON.parse(row.payload);
+
+    /* Fetched once and shared by both sends. */
+    const receiptUrl = await receiptUrlFor(env, session.payment_intent);
+    if (receiptUrl) {
+      await env.DB.prepare(`UPDATE applications SET receipt_url = ?1 WHERE stripe_session_id = ?2`)
+        .bind(receiptUrl, session.id).run().catch(() => {});
+    }
+
+    /* Attempted separately so one failing does not hide the other: the operator
+     * notification and the applicant's confirmation are different promises to
+     * different people. */
     try {
       const sent = await notifyPaid(env, {
         reference: row.reference,
         amount: formatAmount(session),
-        application: JSON.parse(row.payload),
+        application,
         letter: row.letter,
       });
       if (sent) {
@@ -87,7 +100,27 @@ async function markPaid(env, session, waitUntil) {
           .run();
       }
     } catch (err) {
-      console.error('[webhook] delivery failed:', err);
+      console.error('[webhook] operator notification failed:', err);
+    }
+
+    try {
+      const result = await sendApplicantEmail(env, {
+        reference: row.reference,
+        application,
+        receiptUrl,
+      });
+      if (result.status === 'sent') {
+        await env.DB.prepare(`UPDATE applications SET applicant_emailed_at = ?1 WHERE stripe_session_id = ?2`)
+          .bind(new Date().toISOString(), session.id)
+          .run();
+        console.log(`[email] confirmation sent to applicant for ${row.reference}`);
+      } else {
+        console.warn(`[email] applicant confirmation SKIPPED for ${row.reference}: RESEND_API_KEY or NOTIFY_FROM not set`);
+      }
+    } catch (err) {
+      /* Never rethrown. The euro is taken and the application is safe; a failed
+       * email is something to retry by hand, not a reason to make Stripe redeliver. */
+      console.error('[email] applicant confirmation FAILED:', err);
     }
   })();
 
