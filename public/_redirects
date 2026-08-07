@@ -5,6 +5,8 @@
 /apply.html    /apply    301
 /success.html  /success  301
 /terms.html    /terms    301
+/viewings.html /viewings 301
+/bezichtigingen.html /bezichtigingen 301
 
 # Anything shared while the site lived under the old GitHub Pages path.
 /fastkeys/*  /:splat  301
