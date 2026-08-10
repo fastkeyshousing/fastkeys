@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FastKeys admin</title>
+<style>
+:root{
+  --slate:#445162; --deep:#3A4553; --ink:#222A35; --chalk:#EDEFF2;
+  --key:#E0A35E; --key-lift:#F0BE80; --line:rgba(237,239,242,.1);
+  --soft:rgba(237,239,242,.62); --dim:rgba(237,239,242,.4);
+  --good:#8FD3A3; --bad:#F0A9A9; --warn:#F2CC8F;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+body{background:var(--slate); color:var(--chalk); font:15px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+  height:100vh; display:flex; flex-direction:column; overflow:hidden}
+button,input,select{font:inherit; color:inherit}
+
+header{display:flex; align-items:center; gap:16px; padding:14px 22px; background:var(--deep);
+  border-bottom:1px solid var(--line); flex:none}
+.brand{font-size:15px; font-weight:700; letter-spacing:.18em; color:var(--key)}
+.mode{font-size:11.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase;
+  padding:4px 10px; border-radius:999px}
+.mode.production{background:rgba(224,163,94,.18); color:var(--key); border:1px solid rgba(224,163,94,.4)}
+.mode.local{background:rgba(143,211,163,.15); color:var(--good); border:1px solid rgba(143,211,163,.35)}
+.stats{margin-left:auto; display:flex; gap:18px; font-size:13px; color:var(--soft)}
+.stats b{color:var(--chalk)}
+.stats .alert{color:var(--warn)}
+
+.tools{display:flex; gap:10px; padding:12px 22px; border-bottom:1px solid var(--line); flex:none}
+input[type=search]{flex:1; max-width:420px; background:rgba(0,0,0,.18); border:1px solid var(--line);
+  border-radius:10px; padding:9px 13px; outline:none}
+input[type=search]:focus{border-color:rgba(224,163,94,.5)}
+select{background:rgba(0,0,0,.18); border:1px solid var(--line); border-radius:10px; padding:9px 11px; outline:none}
+.btn{background:var(--key); color:var(--ink); border:none; border-radius:10px; padding:9px 16px;
+  font-weight:650; cursor:pointer; transition:background .15s}
+.btn:hover{background:var(--key-lift)}
+.btn.ghost{background:transparent; color:var(--chalk); border:1px solid var(--line)}
+.btn.ghost:hover{background:rgba(255,255,255,.06)}
+.btn:disabled{opacity:.5; cursor:default}
+
+main{flex:1; display:grid; grid-template-columns:minmax(340px,42%) 1fr; overflow:hidden}
+@media (max-width:900px){ main{grid-template-columns:1fr} .pane{display:none} .pane.open{display:block} }
+
+.list{overflow-y:auto; border-right:1px solid var(--line)}
+.row{padding:13px 22px; border-bottom:1px solid rgba(237,239,242,.055); cursor:pointer;
+  display:grid; grid-template-columns:1fr auto; gap:4px 12px; align-items:center}
+.row:hover{background:rgba(255,255,255,.035)}
+.row.sel{background:rgba(224,163,94,.12); box-shadow:inset 3px 0 0 var(--key)}
+.row .ref{font-family:ui-monospace,Menlo,monospace; font-size:13px; color:var(--key); letter-spacing:.04em}
+.row .nm{font-weight:600; font-size:14.5px}
+.row .em{font-size:12.7px; color:var(--dim); grid-column:1/-1}
+.pill{font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+  padding:3px 9px; border-radius:999px; white-space:nowrap}
+.pill.paid{background:rgba(143,211,163,.16); color:var(--good)}
+.pill.pending{background:rgba(242,204,143,.16); color:var(--warn)}
+.pill.failed,.pill.expired{background:rgba(240,169,169,.14); color:var(--bad)}
+.flag{font-size:11px; color:var(--warn); grid-column:1/-1}
+
+.pane{overflow-y:auto; padding:24px 26px 60px}
+.empty{display:grid; place-items:center; height:100%; color:var(--dim); text-align:center; padding:40px}
+
+h2{font-size:21px; font-weight:600; letter-spacing:-.01em}
+.refbig{display:flex; align-items:center; gap:10px; margin:14px 0 20px}
+.refbig code{font-family:ui-monospace,Menlo,monospace; font-size:20px; font-weight:700; color:var(--key-lift);
+  letter-spacing:.06em; background:rgba(224,163,94,.12); border:1px dashed rgba(224,163,94,.45);
+  padding:9px 15px; border-radius:11px}
+.copy{background:transparent; border:1px solid var(--line); border-radius:9px; padding:8px 12px;
+  cursor:pointer; font-size:13px; color:var(--soft)}
+.copy:hover{color:var(--chalk); border-color:rgba(224,163,94,.4)}
+.copy.done{color:var(--good); border-color:rgba(143,211,163,.45)}
+
+.sec{margin-top:26px}
+.sec h3{font-size:12px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--key); margin-bottom:11px}
+table{width:100%; border-collapse:collapse; font-size:14px}
+td{padding:8px 0; border-top:1px solid rgba(237,239,242,.07); vertical-align:top}
+td:first-child{color:var(--dim); width:40%; padding-right:14px}
+td.v{font-weight:550}
+pre{background:rgba(0,0,0,.22); border:1px solid var(--line); border-radius:11px; padding:15px;
+  font:12.6px/1.6 ui-monospace,Menlo,monospace; white-space:pre-wrap; word-break:break-word;
+  color:var(--soft); max-height:340px; overflow:auto}
+
+.actions{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px}
+.inline{display:flex; gap:8px; margin-top:11px}
+.inline input{flex:1; background:rgba(0,0,0,.18); border:1px solid var(--line); border-radius:9px;
+  padding:9px 12px; outline:none}
+.inline input:focus{border-color:rgba(224,163,94,.5)}
+.note{margin-top:11px; font-size:13.2px; line-height:1.6; padding:11px 14px; border-radius:10px; display:none}
+.note.show{display:block}
+.note.ok{background:rgba(143,211,163,.13); color:var(--good)}
+.note.err{background:rgba(240,169,169,.12); color:var(--bad)}
+.hint{font-size:12.7px; color:var(--dim); margin-top:8px; line-height:1.55}
+iframe{width:100%; height:520px; border:1px solid var(--line); border-radius:11px; background:#fff; margin-top:11px}
+.spin{color:var(--dim); padding:26px 22px}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="brand">FASTKEYS</span>
+  <span class="mode __MODECLASS__" id="mode">__MODE__</span>
+  <div class="stats" id="stats"></div>
+</header>
+
+<div class="tools">
+  <input type="search" id="q" placeholder="Search reference, name or email" autocomplete="off">
+  <select id="status">
+    <option value="all">All statuses</option>
+    <option value="paid">Paid</option>
+    <option value="pending">Pending</option>
+    <option value="failed">Failed</option>
+    <option value="expired">Expired</option>
+  </select>
+  <button class="btn ghost" id="refresh">Refresh</button>
+  <button class="btn" id="reconcile" title="Ask Stripe about every pending row and settle the ones that actually paid">Reconcile with Stripe</button>
+</div>
+
+<main>
+  <div class="list" id="list"><div class="spin">Loading&hellip;</div></div>
+  <div class="pane" id="pane">
+    <div class="empty"><div>Select an application to see the full record,<br>resend their confirmation, or correct an email address.</div></div>
+  </div>
+</main>
+
+<script>
+const K = '__TOKEN__';
+const api = async (route, params = {}, method = 'GET') => {
+  const url = new URL('/api/' + route, location.origin);
+  url.searchParams.set('k', K);
+  const opts = { method, headers: { 'x-admin-token': K } };
+  if (method === 'GET') { for (const [k,v] of Object.entries(params)) if (v != null) url.searchParams.set(k, v); }
+  else { opts.headers['content-type'] = 'application/json'; opts.body = JSON.stringify(params); }
+  const res = await fetch(url, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+};
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = (c, cur) => c == null ? '—' : '€' + (c/100).toFixed(2) + ' ' + (cur||'eur').toUpperCase();
+const when = s => { if(!s) return '—'; const d=new Date(s); return isNaN(d)?s:d.toLocaleString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); };
+
+let selected = null;
+
+async function load() {
+  $('#list').innerHTML = '<div class="spin">Loading…</div>';
+  try {
+    const { rows, counts, unemailed } = await api('list', { q: $('#q').value.trim(), status: $('#status').value });
+    const by = Object.fromEntries(counts.map(c => [c.status, c.n]));
+    $('#stats').innerHTML =
+      `<span><b>${counts.reduce((s,c)=>s+c.n,0)}</b> total</span>` +
+      `<span><b>${by.paid||0}</b> paid</span>` +
+      (unemailed ? `<span class="alert"><b>${unemailed}</b> paid, never emailed</span>` : '');
+
+    if (!rows.length) { $('#list').innerHTML = '<div class="spin">Nothing matches.</div>'; return; }
+
+    $('#list').innerHTML = rows.map(r => {
+      const flags = [];
+      if (r.status === 'paid' && !r.applicant_emailed_at) flags.push('no confirmation email sent');
+      if (r.status === 'paid' && !r.notified_at) flags.push('you were never notified');
+      return `<div class="row" data-ref="${esc(r.reference)}">
+        <span class="nm">${esc(r.name)}</span>
+        <span class="pill ${esc(r.status)}">${esc(r.status)}</span>
+        <span class="ref">${esc(r.reference)}</span>
+        <span class="em">${esc(r.email)} · ${when(r.paid_at || r.created_at)}</span>
+        ${flags.length ? `<span class="flag">⚠ ${esc(flags.join(' · '))}</span>` : ''}
+      </div>`;
+    }).join('');
+
+    document.querySelectorAll('.row').forEach(el =>
+      el.addEventListener('click', () => open(el.dataset.ref)));
+    if (selected) {
+      const el = document.querySelector(`.row[data-ref="${CSS.escape(selected)}"]`);
+      if (el) el.classList.add('sel');
+    }
+  } catch (e) {
+    $('#list').innerHTML = `<div class="spin" style="color:var(--bad)">${esc(e.message)}</div>`;
+  }
+}
+
+async function open(ref) {
+  selected = ref;
+  document.querySelectorAll('.row').forEach(r => r.classList.toggle('sel', r.dataset.ref === ref));
+  $('#pane').innerHTML = '<div class="spin">Loading…</div>';
+  $('#pane').classList.add('open');
+  try {
+    const { row, application: a } = await api('detail', { reference: ref });
+    const rowsOf = pairs => pairs.filter(([,v]) => v !== null && v !== undefined && v !== '')
+      .map(([k,v]) => `<tr><td>${esc(k)}</td><td class="v">${esc(v)}</td></tr>`).join('');
+
+    $('#pane').innerHTML = `
+      <h2>${esc(row.name)}</h2>
+      <div class="refbig">
+        <code id="refv">${esc(row.reference)}</code>
+        <button class="copy" id="copyref">Copy</button>
+        <span class="pill ${esc(row.status)}">${esc(row.status)}</span>
+      </div>
+
+      <div class="sec">
+        <h3>Applicant</h3>
+        <table>${rowsOf([
+          ['Email', a.email || row.email], ['Phone', a.phone], ['Looking in', a.city],
+          ['Situation', [a.employment, a.role, a.organisation].filter(Boolean).join(' · ')],
+          ['Monthly income', a.income ? '€'+Number(a.income).toLocaleString('nl-NL') : null],
+          ['Monthly budget', a.budget ? '€'+Number(a.budget).toLocaleString('nl-NL') : null],
+          ['Savings', a.savings ? '€'+Number(a.savings).toLocaleString('nl-NL') : null],
+          ['Guarantor income', a.guarantor_income ? '€'+Number(a.guarantor_income).toLocaleString('nl-NL') : null],
+          ['Rent in advance', a.months_in_advance && a.months_in_advance !== '0' ? a.months_in_advance + ' month(s)' : null],
+          ['Household', a.household === 'partner' ? 'With partner' : 'Single'],
+          ['Available from', a.available_from], ['Duration', a.duration],
+          ['Traits', Array.isArray(a.personality) ? a.personality.join(', ') : a.personality],
+          ['Hobbies', a.hobbies], ['Notes', a.notes],
+        ])}</table>
+      </div>
+
+      <div class="sec">
+        <h3>Payment &amp; delivery</h3>
+        <table>${rowsOf([
+          ['Amount', money(row.amount_total, row.currency)],
+          ['Created', when(row.created_at)], ['Paid', when(row.paid_at)],
+          ['Failed', row.failed_at ? when(row.failed_at) : null],
+          ['Failure reason', row.failure_reason],
+          ['You were notified', row.notified_at ? when(row.notified_at) : 'NEVER'],
+          ['Applicant emailed', row.applicant_emailed_at ? when(row.applicant_emailed_at) : 'NEVER'],
+          ['Stripe customer', row.stripe_customer], ['Payment intent', row.stripe_payment_intent],
+          ['Session', row.stripe_session_id],
+        ])}</table>
+        ${row.receipt_url ? `<div class="hint"><a href="${esc(row.receipt_url)}" target="_blank" rel="noopener" style="color:var(--key)">Stripe receipt</a> (links expire after 30 days)</div>` : ''}
+      </div>
+
+      <div class="sec">
+        <h3>${row.status === 'paid' ? 'Send the confirmation email' : 'Chase this payment'}</h3>
+        ${row.status !== 'paid' ? `<p class="hint" style="margin-top:0;margin-bottom:11px">
+          This application is <b>${esc(row.status)}</b>. If Stripe shows the money arrived,
+          press <b>Reconcile with Stripe</b> at the top first &mdash; the row will flip to paid
+          and you can send the real confirmation. Otherwise send the reminder below.</p>` : ''}
+        <div class="actions">
+          ${row.status === 'paid'
+            ? `<button class="btn" id="resend">Send confirmation to ${esc(a.email || row.email)}</button>
+               <button class="btn ghost" id="preview">Preview it first</button>`
+            : `<button class="btn" id="remind">Send payment reminder to ${esc(a.email || row.email)}</button>
+               <button class="btn ghost" id="previewRem">Preview the reminder</button>`}
+        </div>
+        <div class="inline">
+          <input id="newmail" type="email" placeholder="Correct the address first, if it is wrong" value="">
+          <button class="btn ghost" id="savemail">Save address</button>
+        </div>
+        <p class="hint">Changing the address updates the stored application too, so the resend goes to the new one.</p>
+        <div class="note" id="note"></div>
+        <div id="prev"></div>
+      </div>
+
+      <div class="sec">
+        <h3>Landlord letter</h3>
+        <pre>${esc(row.letter || '')}</pre>
+      </div>`;
+
+    $('#copyref').onclick = async () => {
+      try { await navigator.clipboard.writeText(row.reference); } catch {}
+      $('#copyref').textContent = 'Copied'; $('#copyref').classList.add('done');
+      setTimeout(() => { $('#copyref').textContent = 'Copy'; $('#copyref').classList.remove('done'); }, 2000);
+    };
+
+    const note = (msg, ok) => {
+      const n = $('#note');
+      n.textContent = msg; n.className = 'note show ' + (ok ? 'ok' : 'err');
+    };
+
+    $('#savemail').onclick = async () => {
+      const email = $('#newmail').value.trim();
+      if (!email) return note('Type the corrected address first.', false);
+      try {
+        await api('updateEmail', { reference: ref, email }, 'POST');
+        note('Address updated. Now press Send.', true);
+        load(); open(ref);
+      } catch (e) { note(e.message, false); }
+    };
+
+    const showPreview = async (kind) => {
+      try {
+        const p = await api('preview', { reference: ref, kind: kind || 'confirmation' });
+        $('#prev').innerHTML = `<p class="hint">To: ${esc(p.to)} &mdash; ${esc(p.subject)}</p>
+          <iframe sandbox srcdoc="${esc(p.html)}"></iframe>`;
+      } catch (e) { note(e.message, false); }
+    };
+
+    /* Both send buttons behave identically, so they share a handler. Only one of
+       them exists at a time, depending on whether the row is paid. */
+    const sender = (route, btnId, label) => {
+      const btn = $('#' + btnId);
+      if (!btn) return;
+      btn.onclick = async () => {
+        const was = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Sending\u2026';
+        try {
+          const r = await api(route, { reference: ref }, 'POST');
+          note(label + ' sent to ' + r.sentTo, true);
+          load();
+        } catch (e) {
+          note(e.message, false);
+          btn.disabled = false; btn.textContent = was;
+        }
+      };
+    };
+    sender('resend', 'resend', 'Confirmation');
+    sender('remind', 'remind', 'Reminder');
+    if ($('#preview')) $('#preview').onclick = () => showPreview('confirmation');
+    if ($('#previewRem')) $('#previewRem').onclick = () => showPreview('reminder');
+  } catch (e) {
+    $('#pane').innerHTML = `<div class="spin" style="color:var(--bad)">${esc(e.message)}</div>`;
+  }
+}
+
+let t;
+$('#q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 450); });
+$('#status').addEventListener('change', load);
+$('#refresh').addEventListener('click', load);
+
+$('#reconcile').addEventListener('click', async () => {
+  const b = $('#reconcile');
+  const was = b.textContent;
+  b.disabled = true; b.textContent = 'Asking Stripe\u2026';
+  try {
+    const r = await api('reconcile', {}, 'POST');
+    const bits = ['checked ' + r.checked];
+    if (r.settled.length) bits.push(r.settled.length + ' were actually paid: ' + r.settled.join(', '));
+    if (r.stillUnpaid.length) bits.push(r.stillUnpaid.length + ' genuinely unpaid');
+    if (r.errors.length) bits.push(r.errors.length + ' could not be checked');
+    alert(r.settled.length
+      ? 'Reconciled.\n\n' + bits.join('\n') + '\n\nThose are now marked paid. Open each one and send the confirmation.'
+      : 'Reconciled. ' + bits.join(', ') + '.\n\nNothing needed changing.');
+    load();
+    if (selected) open(selected);
+  } catch (e) { alert('Could not reconcile:\n\n' + e.message); }
+  b.disabled = false; b.textContent = was;
+});
+load();
+</script>
+</body>
+</html>

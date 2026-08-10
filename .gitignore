@@ -1,6 +1,40 @@
+# Secrets. The first line is the one that matters: .dev.vars holds a live Stripe
+# key, the webhook signing secret, the Resend key and the Telegram token.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+*.pem
+*.key
+*.p12
+secrets.json
+
+# Local state and build output
 node_modules/
 .wrangler/
-.dev.vars
-.DS_Store
-*.log
+dist/
+.cache/
+
+# Anything exported from the database. These contain applicant income,
+# employer and guarantor details and must never reach a repository.
+*.sqlite
+*.sqlite3
+*.db
+*.csv
+*.ndjson
 backup/
+backups/
+exports/
+applications*.json
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs, which routinely contain email addresses and reference numbers
+*.log
+logs/

@@ -8,7 +8,11 @@
     "db:migrate:local": "wrangler d1 migrations apply fastkeys --local",
     "db:migrate": "wrangler d1 migrations apply fastkeys --remote",
     "tail": "wrangler pages deployment tail",
-    "check:telegram": "node scripts/check-telegram.mjs"
+    "check:telegram": "node scripts/check-telegram.mjs",
+    "backfill": "node scripts/backfill-emails.mjs --local",
+    "backfill:prod": "node scripts/backfill-emails.mjs",
+    "admin": "node scripts/admin.mjs",
+    "admin:local": "node scripts/admin.mjs --local"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

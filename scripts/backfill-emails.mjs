@@ -76,7 +76,20 @@ const SITE = (env.SITE_URL_PUBLIC || 'https://fastkeyshousing.com').replace(/\/$
 function d1(sql) {
   const args = ['wrangler', 'd1', 'execute', 'fastkeys', LOCAL ? '--local' : '--remote',
     '--json', '--command', sql];
-  const out = execFileSync('npx', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+
+  let out;
+  try {
+    out = execFileSync('npx', args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  } catch (err) {
+    /* execFileSync puts the useful part on stdout and stderr, and err.message
+     * contains only the command line. Reporting just err.message, as an earlier
+     * version did, told you which query failed but never why. */
+    const detail = [err.stdout, err.stderr].filter(Boolean).join('\n').trim();
+    const e = new Error(detail || err.message);
+    e.detail = detail;
+    throw e;
+  }
+
   /* wrangler prints banner lines before the JSON, so start at the first bracket. */
   const start = out.indexOf('[');
   if (start === -1) throw new Error(`Unexpected wrangler output:\n${out}`);
@@ -92,7 +105,7 @@ const esc = (s) => String(s).replace(/'/g, "''");
 let where = `status = 'paid' AND applicant_emailed_at IS NULL`;
 if (ONLY) where += ` AND reference = '${esc(ONLY)}'`;
 
-console.log(c.b(`\nBackfill  ${c.dim(LOCAL ? '(local database)' : '(production database)')}\n`));
+console.log(c.b(`\nBackfill  ${LOCAL ? c.warn('(LOCAL scratch database, not your real customers)') : c.ok('(production database)')}\n`));
 
 let rows;
 try {
@@ -104,7 +117,32 @@ try {
       LIMIT ${Number.isFinite(LIMIT) ? LIMIT : 500};`
   );
 } catch (err) {
-  console.error(c.bad('Could not read the database:'), err.message);
+  console.error(c.bad('\nCould not read the database.\n'));
+  console.error(err.message.split('\n').map((l) => '  ' + l).join('\n'));
+
+  const msg = String(err.message);
+  console.error('');
+  if (/no such table/i.test(msg)) {
+    console.error(c.b('  That database has no schema yet.'));
+    if (LOCAL) {
+      console.error('  Run:  npm run db:migrate:local');
+      console.error('');
+      console.error(c.warn('  But note: --local is a scratch database on your own machine.'));
+      console.error('  Your real customers are in production. You almost certainly want:');
+      console.error(c.b('    npm run backfill:prod'));
+    } else {
+      console.error('  Run:  npm run db:migrate');
+    }
+  } else if (/no such column/i.test(msg)) {
+    console.error(c.b('  A migration has not been applied to that database.'));
+    console.error(`  Run:  ${LOCAL ? 'npm run db:migrate:local' : 'npm run db:migrate'}`);
+  } else if (/not authenticated|login|credential/i.test(msg)) {
+    console.error(c.b('  Wrangler is not logged in.  Run:  npx wrangler login'));
+  } else if (/couldn't find a D1 DB|database.*not found/i.test(msg)) {
+    console.error(c.b('  No database named "fastkeys" on this account.'));
+    console.error('  Check database_id in wrangler.toml, or npx wrangler d1 list');
+  }
+  console.error('');
   process.exit(1);
 }
 
@@ -161,7 +199,7 @@ for (const row of rows) {
   });
 
   try {
-    const res = await fetch((process.env.RESEND_BASE || 'https://api.resend.com') + '/emails', {
+    const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         authorization: `Bearer ${env.RESEND_API_KEY}`,
