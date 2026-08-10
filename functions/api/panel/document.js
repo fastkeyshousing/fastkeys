@@ -48,9 +48,19 @@ function safeName(raw) {
   return cleaned || 'document';
 }
 
-async function requireOwner(request, env) {
+/* Any signed-in account. Staff handle documents because that is the work:
+ * a landlord asks for an enrolment certificate and somebody has to send it. */
+async function requireUser(request, env) {
   const user = await currentUser(request, env);
   if (!user) return { error: fail(401, 'not_signed_in') };
+  return { user };
+}
+
+/* Deletion is different. Uploading the wrong file is a nuisance; removing the
+ * only copy of somebody's passport scan is not, so that stays with the owner. */
+async function requireOwner(request, env) {
+  const { user, error } = await requireUser(request, env);
+  if (error) return { error };
   if (user.role !== 'owner') return { error: fail(403, 'not_permitted') };
   return { user };
 }
@@ -61,7 +71,7 @@ export async function onRequestPost({ request, env }) {
   if (!env.DOCS) return fail(503, 'not_configured', 'R2 binding DOCS is not bound');
   if (!sameOrigin(request, siteUrl)) return fail(403, 'bad_origin');
 
-  const { user, error } = await requireOwner(request, env);
+  const { user, error } = await requireUser(request, env);
   if (error) return error;
 
   const url = new URL(request.url);
@@ -122,7 +132,7 @@ export async function onRequestPost({ request, env }) {
 
 export async function onRequestGet({ request, env }) {
   if (!env.DB) return fail(503, 'not_configured');
-  const { user, error } = await requireOwner(request, env);
+  const { user, error } = await requireUser(request, env);
   if (error) return error;
 
   const url = new URL(request.url);

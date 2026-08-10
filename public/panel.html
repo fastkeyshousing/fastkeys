@@ -632,6 +632,89 @@ button{font:inherit; color:inherit}
 .pn-up select,.pn-up input[type=file]{color:var(--chalk); background:rgba(0,0,0,.2);
   border:1px solid rgba(255,255,255,.13); border-radius:10px; padding:8px 11px; font:inherit}
 .pn-note{font-size:13px; color:rgba(237,239,242,.5); line-height:1.6; margin-top:12px}
+
+/* two-pane console, mirroring the local admin */
+/* The panel is a full-screen console, so the marketing header and footer are
+   hidden while it is open. They stay in place on the login screen, which is the
+   one moment somebody might want to get back to the site. */
+body.pn-active .nav,body.pn-active header,body.pn-active .foot,
+body.pn-active footer,body.pn-active .wa{display:none !important}
+body.pn-active main.wrap{padding:0 !important; max-width:none !important}
+body.pn-active{overflow:hidden}
+.pn-shell{position:fixed; inset:0; z-index:40; display:flex; flex-direction:column;
+  background:var(--slate)}
+.pn-hd{display:flex; align-items:center; gap:14px; padding:12px 20px; background:#3A4553;
+  border-bottom:1px solid rgba(255,255,255,.1); flex:none; flex-wrap:wrap}
+.pn-brand{font-size:14px; font-weight:700; letter-spacing:.17em; color:var(--key)}
+.pn-stats{margin-left:auto; display:flex; gap:16px; font-size:12.8px; color:rgba(237,239,242,.6)}
+.pn-stats b{color:#fff}
+.pn-stats .warn{color:#F2CC8F}
+.pn-tb{display:flex; gap:9px; padding:11px 20px; border-bottom:1px solid rgba(255,255,255,.1);
+  flex:none; flex-wrap:wrap}
+.pn-main{flex:1; display:grid; grid-template-columns:minmax(320px,38%) 1fr; overflow:hidden}
+@media (max-width:900px){ .pn-main{grid-template-columns:1fr} .pn-pane{display:none} .pn-pane.open{display:block} }
+.pn-list{overflow-y:auto; border-right:1px solid rgba(255,255,255,.1)}
+.pn-pane{overflow-y:auto; padding:22px 24px 70px}
+.pn-r{padding:12px 20px; border-bottom:1px solid rgba(237,239,242,.055); cursor:pointer;
+  display:grid; grid-template-columns:1fr auto; gap:3px 10px; align-items:center}
+.pn-r:hover{background:rgba(255,255,255,.035)}
+.pn-r.sel{background:rgba(224,163,94,.12); box-shadow:inset 3px 0 0 var(--key)}
+.pn-r .nm{font-weight:600; font-size:14.5px}
+.pn-r .rf{font-family:ui-monospace,Menlo,monospace; font-size:12.4px; color:var(--key); letter-spacing:.04em}
+.pn-r .mt{grid-column:1/-1; font-size:12.4px; color:rgba(237,239,242,.42)}
+.pn-r .fl{grid-column:1/-1; font-size:11.5px; color:#F2CC8F}
+.pn-empty{display:grid; place-items:center; height:100%; color:rgba(237,239,242,.4);
+  text-align:center; padding:40px; line-height:1.6}
+.pn-h2{font-size:21px; font-weight:600; letter-spacing:-.01em}
+.pn-refbig{display:flex; align-items:center; gap:10px; margin:12px 0 18px; flex-wrap:wrap}
+.pn-refbig code{font-family:ui-monospace,Menlo,monospace; font-size:19px; font-weight:700;
+  color:#F0BE80; letter-spacing:.06em; background:rgba(224,163,94,.12);
+  border:1px dashed rgba(224,163,94,.45); padding:8px 14px; border-radius:11px}
+.pn-cp{background:transparent; border:1px solid rgba(255,255,255,.14); border-radius:9px;
+  padding:7px 12px; cursor:pointer; font-size:12.7px; color:rgba(237,239,242,.7)}
+.pn-cp:hover{color:#fff; border-color:rgba(224,163,94,.4)}
+.pn-cp.done{color:#8FD3A3; border-color:rgba(143,211,163,.45)}
+.pn-sec{margin-top:24px}
+.pn-sec h3{font-size:11.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--key); margin-bottom:10px}
+.pn-t{width:100%; border-collapse:collapse; font-size:14px}
+.pn-t td{padding:7px 0; border-top:1px solid rgba(237,239,242,.07); vertical-align:top;
+  color:var(--chalk)}
+.pn-t td:first-child{color:rgba(237,239,242,.42); width:42%; padding-right:14px}
+.pn-pre{background:rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.1); border-radius:11px;
+  padding:14px; font:12.5px/1.6 ui-monospace,Menlo,monospace; white-space:pre-wrap;
+  word-break:break-word; color:rgba(237,239,242,.72); max-height:300px; overflow:auto}
+.pn-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px}
+@media (max-width:1150px){ .pn-grid{grid-template-columns:1fr} }
+.pn-grid .wide{grid-column:1/-1}
+.pn-grid label{display:block; font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+  color:rgba(237,239,242,.42); margin-bottom:4px}
+.pn-in{width:100%; box-sizing:border-box; color:var(--chalk); background:rgba(0,0,0,.2);
+  border:1px solid rgba(255,255,255,.13); border-radius:9px; padding:8px 11px; font:inherit; outline:none}
+.pn-in:focus{border-color:rgba(224,163,94,.5)}
+textarea.pn-in{min-height:60px; resize:vertical}
+.pn-acts{display:flex; gap:9px; flex-wrap:wrap; margin-top:12px}
+.pn-b{background:var(--key); color:#222A35; border:none; border-radius:9px; padding:9px 16px;
+  font-weight:650; font-size:14px; cursor:pointer}
+.pn-b:hover{background:#F0BE80}
+.pn-b.gh{background:transparent; color:var(--chalk); border:1px solid rgba(255,255,255,.14)}
+.pn-b.gh:hover{background:rgba(255,255,255,.06)}
+.pn-b.rd{background:rgba(240,169,169,.16); color:#F0A9A9; border:1px solid rgba(240,169,169,.4)}
+.pn-b:disabled{opacity:.5; cursor:default}
+.pn-msg2{display:none; margin-top:10px; font-size:13.2px; padding:10px 13px; border-radius:9px; line-height:1.55}
+.pn-msg2.show{display:block}
+.pn-msg2.ok{background:rgba(143,211,163,.13); color:#8FD3A3}
+.pn-msg2.err{background:rgba(240,169,169,.12); color:#F0A9A9}
+.pn-danger{margin-top:12px; border:1px solid rgba(240,169,169,.3); border-radius:11px;
+  padding:14px 16px; background:rgba(240,169,169,.05)}
+.pn-danger h4{font-size:13px; color:#F0A9A9; margin-bottom:5px}
+.pn-inline{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap}
+.pn-inline .pn-in{flex:1; min-width:180px}
+.pn-modal{position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; place-items:center; z-index:60}
+.pn-modal.open{display:grid}
+.pn-modal .bx{background:#3A4553; border:1px solid rgba(255,255,255,.12); border-radius:16px;
+  padding:22px 24px; width:min(640px,92vw); max-height:88vh; overflow:auto}
+.pn-hint2{font-size:12.6px; color:rgba(237,239,242,.42); line-height:1.55; margin-top:7px}
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -659,7 +742,7 @@ button{font:inherit; color:inherit}
 
 <main class="wrap" style="padding-bottom:80px">
 
-  <div class="pn-login" id="loginView">
+<div class="pn-login" id="loginView">
     <h1>Sign in</h1>
     <p class="sub">FastKeys staff only. This page is not linked from anywhere and is not indexed.</p>
     <form id="loginForm" novalidate>
@@ -676,66 +759,62 @@ button{font:inherit; color:inherit}
     </form>
   </div>
 
-  <div id="panelView" hidden>
-    <div class="pn-bar">
-      <span class="pn-who" id="pnWho"></span>
-      <span class="pn-role" id="pnRole"></span>
-      <button class="pn-out" id="pnOut">Sign out</button>
-    </div>
-
-    <div class="pn-tools">
-      <select id="pnKind">
-        <option value="list">Applications</option>
-        <option value="viewings">Viewings</option>
-      </select>
-      <input type="search" id="pnQ" placeholder="Search reference, name or email">
-      <select id="pnStatus">
-        <option value="all">All statuses</option>
-        <option value="paid">Paid</option>
-        <option value="pending">Pending</option>
-        <option value="failed">Failed</option>
-        <option value="expired">Expired</option>
-      </select>
-    </div>
-
-    <div class="pn-rows" id="pnRows"><p class="pn-note">Loading&hellip;</p></div>
-    <div class="pn-detail" id="pnDetail" hidden></div>
-    <div class="pn-docs" id="pnDocs" hidden>
-      <h4 style="font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--key);margin-bottom:10px">Documents</h4>
-      <div id="pnDocList"></div>
-      <div class="pn-up">
-        <select id="pnDocKind">
-          <option value="passport">Passport / ID</option>
-          <option value="enrolment">Enrolment certificate</option>
-          <option value="payslip">Payslip</option>
-          <option value="contract">Employment contract</option>
-          <option value="bank">Bank statement</option>
-          <option value="guarantor">Guarantor documents</option>
-          <option value="other">Other</option>
-        </select>
-        <input type="file" id="pnDocFile" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx">
-        <button class="btn btn-key" id="pnDocUp" style="padding:9px 18px">Upload</button>
+    <div id="panelView" hidden>
+    <div class="pn-shell">
+      <div class="pn-hd">
+        <span class="pn-brand">FASTKEYS</span>
+        <span class="pn-role" id="pnRole"></span>
+        <span class="pn-who" id="pnWho"></span>
+        <div class="pn-stats" id="pnStats"></div>
+        <button class="pn-b gh" id="pnOut" style="padding:7px 14px">Sign out</button>
       </div>
-      <p class="pn-note" id="pnDocMsg"></p>
-      <p class="pn-note">Stored encrypted in an EU bucket, private, reachable only through this
-        panel after signing in. Cover the BSN before uploading anything.</p>
+
+      <div class="pn-tb">
+        <select id="pnKind" class="pn-in" style="width:auto">
+          <option value="list">Applications</option>
+          <option value="viewings">Viewings</option>
+        </select>
+        <input type="search" id="pnQ" class="pn-in" style="flex:1;min-width:180px"
+               placeholder="Search reference, name or email" autocomplete="off">
+        <select id="pnStatus" class="pn-in" style="width:auto">
+          <option value="all">All statuses</option>
+          <option value="paid">Paid</option>
+          <option value="pending">Pending</option>
+          <option value="failed">Failed</option>
+          <option value="expired">Expired</option>
+        </select>
+        <button class="pn-b gh" id="pnRefresh">Refresh</button>
+        <button class="pn-b" id="pnRecon">Reconcile with Stripe</button>
+        <button class="pn-b gh" id="pnNew">+ New</button>
+      </div>
+
+      <div class="pn-main">
+        <div class="pn-list" id="pnList"><div class="pn-empty">Loading&hellip;</div></div>
+        <div class="pn-pane" id="pnPane">
+          <div class="pn-empty"><div>Select an entry to see everything we hold,<br>
+            and to work on it.</div></div>
+        </div>
+      </div>
     </div>
   </div>
+
+  <div class="pn-modal" id="pnModal"><div class="bx" id="pnModalBox"></div></div>
 
 </main>
 
 <script>
 /* FastKeys staff panel.
-   The session lives in an HttpOnly cookie, so this script cannot read it and
-   neither can anything else injected into the page. Every check that matters is
-   repeated on the server: what follows only decides what to draw. */
+   The session is an HttpOnly cookie, so nothing here can read it. Every
+   permission is checked again on the server: what follows only decides what to
+   draw, and a hidden button is a courtesy rather than a control. */
 (function(){
   "use strict";
   var $ = function(s){ return document.querySelector(s); };
   var yr = $('#yr'); if(yr) yr.textContent = new Date().getFullYear();
   var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"']/g,
     function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
-  var me = null, selected = null;
+
+  var me = null, selected = null, selectedKind = 'list', cachedRows = [];
 
   function when(s){
     if(!s) return '\u2014';
@@ -743,11 +822,37 @@ button{font:inherit; color:inherit}
     return isNaN(d) ? s : d.toLocaleString('en-GB',
       {day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
   }
+  function euro(n){ return n == null || n === '' ? '' : '\u20ac' + Number(n).toLocaleString('nl-NL'); }
+  function isOwner(){ return me && me.role === 'owner'; }
+
+  /* Mirrors EDITABLE on the server. Anything Stripe owns is deliberately absent:
+     amounts and session ids record what happened with money, and typing over
+     them would put this database at odds with the payment processor. */
+  var FIELDS = [
+    {k:'name', label:'Full name'},
+    {k:'email', label:'Email', type:'email'},
+    {k:'phone', label:'Phone'},
+    {k:'city', label:'City'},
+    {k:'employment', label:'Situation', type:'select',
+     options:['','permanent','fixed','self','student','intern']},
+    {k:'role', label:'Job title or study'},
+    {k:'organisation', label:'Employer or university'},
+    {k:'income', label:'Monthly income'},
+    {k:'budget', label:'Monthly budget'},
+    {k:'savings', label:'Savings'},
+    {k:'guarantor_income', label:'Guarantor income'},
+    {k:'months_in_advance', label:'Rent in advance', type:'select', options:['0','1','2','3','6']},
+    {k:'household', label:'Household', type:'select', options:['single','partner']},
+    {k:'available_from', label:'Available from', type:'date'},
+    {k:'duration', label:'Duration', type:'select',
+     options:['6 to 12 months','12+ months','24+ months','an indefinite period']},
+    {k:'hobbies', label:'Hobbies', type:'textarea', wide:true},
+    {k:'notes', label:'Notes', type:'textarea', wide:true}
+  ];
 
   function api(route, params, method){
     var url = '/api/panel/' + route;
-    var opts = {method: method || 'GET', headers:{'Accept':'application/json'},
-                credentials:'same-origin'};
+    var opts = {method: method || 'GET', headers:{'Accept':'application/json'}, credentials:'same-origin'};
     if(opts.method === 'GET'){
       var qs = new URLSearchParams(params || {}).toString();
       if(qs) url += '?' + qs;
@@ -766,16 +871,20 @@ button{font:inherit; color:inherit}
 
   function showLogin(){
     me = null;
+    document.body.classList.remove('pn-active');
     $('#panelView').hidden = true;
     $('#loginView').hidden = false;
   }
   function showPanel(user){
     me = user;
+    document.body.classList.add('pn-active');
     $('#loginView').hidden = true;
     $('#panelView').hidden = false;
     $('#pnWho').textContent = user.name || user.email;
     $('#pnRole').textContent = user.role;
     $('#pnRole').className = 'pn-role' + (user.role === 'staff' ? ' staff' : '');
+    /* Owner-only controls are removed rather than left to fail with a 403. */
+    if(!isOwner()){ $('#pnNew').style.display = 'none'; $('#pnRecon').style.display = 'none'; }
     load();
   }
 
@@ -785,32 +894,26 @@ button{font:inherit; color:inherit}
     msg.className = 'pn-msg';
     btn.disabled = true; btn.textContent = 'Signing in\u2026';
     fetch('/api/admin/login', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      credentials:'same-origin',
+      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
       body: JSON.stringify({email: $('#pnEmail').value.trim(), password: $('#pnPass').value})
     }).then(function(r){
-      return r.json().catch(function(){ return {}; }).then(function(b){ return {ok:r.ok, b:b, status:r.status}; });
+      return r.json().catch(function(){ return {}; }).then(function(b){ return {ok:r.ok,b:b,status:r.status}; });
     }).then(function(r){
       btn.disabled = false; btn.textContent = 'Sign in';
       if(r.ok && r.b.user){ $('#pnPass').value = ''; showPanel(r.b.user); return; }
       msg.className = 'pn-msg show err';
-      /* Distinguishing these matters: three of them are not the user's fault and
-         telling them their password is wrong sends them looking in the wrong
-         place. Only invalid_credentials is deliberately vague, and that is the
-         one where vagueness is the point. */
       var reasons = {
         too_many_attempts: 'Too many attempts. Wait fifteen minutes and try again.',
-        setup_incomplete: 'The panel is not finished being set up: the accounts table is missing. Run npm run db:migrate.',
-        service_unavailable: 'The panel cannot reach its database right now. This is not your password.',
-        password_needs_reset: 'This account predates a fix and its password cannot be checked. Re-run npm run admin:user for this email to set it again.',
-        not_configured: 'The panel is not configured on this deployment. Check the D1 binding.',
-        bad_origin: 'Your browser blocked the request. Reload the page and try again.',
+        setup_incomplete: 'The accounts table is missing. Run npm run db:migrate.',
+        password_needs_reset: 'This account predates a fix. Re-run npm run admin:user for this email.',
+        service_unavailable: 'The panel cannot reach its database. This is not your password.',
+        not_configured: 'The panel is not configured on this deployment.',
+        bad_origin: 'Your browser blocked the request. Reload and try again.',
         missing_fields: 'Please fill in both fields.'
       };
       msg.textContent = reasons[r.b.error]
-        || (r.status === 404
-              ? 'The login endpoint is not deployed yet. Push the latest code first.'
-              : 'That email and password do not match an account.');
+        || (r.status === 404 ? 'The login endpoint is not deployed yet.'
+                             : 'That email and password do not match an account.');
     }).catch(function(){
       btn.disabled = false; btn.textContent = 'Sign in';
       msg.className = 'pn-msg show err';
@@ -823,188 +926,375 @@ button{font:inherit; color:inherit}
       .then(showLogin).catch(showLogin);
   });
 
+  /* ------------------------------------------------------------------ list */
   function load(){
-    var kind = $('#pnKind').value;
-    $('#pnDetail').hidden = true;
-    $('#pnRows').innerHTML = '<p class="pn-note">Loading\u2026</p>';
-    api(kind, {q: $('#pnQ').value.trim(), status: $('#pnStatus').value})
+    selectedKind = $('#pnKind').value;
+    $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
+    api(selectedKind, {q: $('#pnQ').value.trim(), status: $('#pnStatus').value})
       .then(function(d){
-        if(!d.rows.length){ $('#pnRows').innerHTML = '<p class="pn-note">Nothing matches.</p>'; return; }
-        $('#pnRows').innerHTML = d.rows.map(function(r){
-          var pill = kind === 'viewings' ? r.service : r.status;
-          var meta = kind === 'viewings'
-            ? esc(r.property_address || '') + ' \u00b7 ' + when(r.paid_at || r.created_at)
-            : esc(r.email) + ' \u00b7 ' + when(r.paid_at || r.created_at);
-          return '<div class="pn-row" data-ref="' + esc(r.reference) + '">' +
+        cachedRows = d.rows;
+        var counts = d.counts || [];
+        var total = counts.reduce(function(s,c){ return s + c.n; }, 0);
+        var paid = (counts.filter(function(c){ return c.status === 'paid'; })[0] || {n:0}).n;
+        var unemailed = selectedKind === 'list'
+          ? d.rows.filter(function(r){ return r.status === 'paid' && !r.applicant_emailed_at; }).length : 0;
+        $('#pnStats').innerHTML =
+          '<span><b>' + total + '</b> total</span><span><b>' + paid + '</b> paid</span>' +
+          (unemailed ? '<span class="warn"><b>' + unemailed + '</b> never emailed</span>' : '');
+
+        if(!d.rows.length){ $('#pnList').innerHTML = '<div class="pn-empty">Nothing matches.</div>'; return; }
+        $('#pnList').innerHTML = d.rows.map(function(r){
+          var flags = [];
+          if(selectedKind === 'list'){
+            if(r.status === 'paid' && !r.applicant_emailed_at) flags.push('no confirmation email sent');
+            if(r.status === 'paid' && !r.notified_at) flags.push('you were never notified');
+          } else {
+            if(r.status === 'paid' && !r.scheduled_for) flags.push('no slot agreed yet');
+            if(r.status === 'paid' && r.service === 'express' && !r.attended_at) flags.push('EXPRESS \u2014 24h clock running');
+          }
+          var pill = selectedKind === 'viewings' ? r.service : r.status;
+          var meta = selectedKind === 'viewings'
+            ? esc(r.property_address || '') : esc(r.email);
+          return '<div class="pn-r" data-ref="' + esc(r.reference) + '">' +
             '<span class="nm">' + esc(r.name) + '</span>' +
             '<span class="pn-pill ' + esc(pill) + '">' + esc(pill) + '</span>' +
             '<span class="rf">' + esc(r.reference) + '</span>' +
-            '<span class="mt">' + meta + '</span></div>';
+            '<span class="mt">' + meta + ' \u00b7 ' + when(r.paid_at || r.created_at) + '</span>' +
+            (flags.length ? '<span class="fl">\u26a0 ' + esc(flags.join(' \u00b7 ')) + '</span>' : '') +
+            '</div>';
         }).join('');
-        Array.prototype.forEach.call(document.querySelectorAll('.pn-row'), function(el){
-          el.addEventListener('click', function(){ openRow(el.dataset.ref, kind, d.rows); });
+        Array.prototype.forEach.call(document.querySelectorAll('.pn-r'), function(el){
+          el.addEventListener('click', function(){ openRow(el.dataset.ref); });
         });
+        if(selected){
+          var cur = document.querySelector('.pn-r[data-ref="' + (window.CSS && CSS.escape ? CSS.escape(selected) : selected) + '"]');
+          if(cur) cur.classList.add('sel');
+        }
       })
-      .catch(function(e){ $('#pnRows').innerHTML = '<p class="pn-note">' + esc(e.message) + '</p>'; });
+      .catch(function(e){ $('#pnList').innerHTML = '<div class="pn-empty">' + esc(e.message) + '</div>'; });
   }
 
   function row(k, v){
     return v === null || v === undefined || v === ''
       ? '' : '<tr><td>' + esc(k) + '</td><td>' + esc(v) + '</td></tr>';
   }
+  function note(id, msg, ok){
+    var n = $(id); if(!n) return;
+    n.textContent = msg; n.className = 'pn-msg2 show ' + (ok ? 'ok' : 'err');
+  }
 
-  /* Owner only. Staff never see this section and the server refuses them anyway. */
+  function openRow(ref){
+    selected = ref;
+    Array.prototype.forEach.call(document.querySelectorAll('.pn-r'), function(el){
+      el.classList.toggle('sel', el.dataset.ref === ref);
+    });
+    $('#pnPane').classList.add('open');
+    if(selectedKind === 'viewings') return openViewing(ref);
+    $('#pnPane').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
+    api('detail', {reference: ref}).then(function(d){ renderApplication(d.row, d.application); })
+      .catch(function(e){ $('#pnPane').innerHTML = '<div class="pn-empty">' + esc(e.message) + '</div>'; });
+  }
+
+  function renderApplication(r, a){
+    var editable = isOwner();
+    $('#pnPane').innerHTML =
+      '<h2 class="pn-h2">' + esc(r.name) + '</h2>' +
+      '<div class="pn-refbig"><code id="pnRefV">' + esc(r.reference) + '</code>' +
+      '<button class="pn-cp" id="pnCopy">Copy</button>' +
+      '<span class="pn-pill ' + esc(r.status) + '">' + esc(r.status) + '</span></div>' +
+
+      '<div class="pn-sec"><h3>Applicant</h3><table class="pn-t">' +
+      row('Email', a.email || r.email) + row('Phone', a.phone) + row('Looking in', a.city) +
+      row('Situation', [a.employment, a.role, a.organisation].filter(Boolean).join(' \u00b7 ')) +
+      row('Monthly income', euro(a.income)) + row('Monthly budget', euro(a.budget)) +
+      row('Savings', euro(a.savings)) + row('Guarantor income', euro(a.guarantor_income)) +
+      row('Rent in advance', a.months_in_advance && a.months_in_advance !== '0' ? a.months_in_advance + ' month(s)' : '') +
+      row('Household', a.household === 'partner' ? 'With partner' : 'Single') +
+      row('Available from', a.available_from) + row('Duration', a.duration) +
+      row('Traits', Array.isArray(a.personality) ? a.personality.join(', ') : a.personality) +
+      row('Hobbies', a.hobbies) + row('Notes', a.notes) +
+      '</table></div>' +
+
+      '<div class="pn-sec"><h3>Payment and delivery</h3><table class="pn-t">' +
+      row('Amount', r.amount_total != null ? '\u20ac' + (r.amount_total/100).toFixed(2) : '') +
+      row('Created', when(r.created_at)) + row('Paid', when(r.paid_at)) +
+      row('Failure reason', r.failure_reason) +
+      row('You were notified', r.notified_at ? when(r.notified_at) : 'NEVER') +
+      row('Applicant emailed', r.applicant_emailed_at ? when(r.applicant_emailed_at) : 'NEVER') +
+      row('Stripe customer', r.stripe_customer) + row('Payment intent', r.stripe_payment_intent) +
+      '</table>' +
+      (r.receipt_url ? '<p class="pn-hint2"><a href="' + esc(r.receipt_url) + '" target="_blank" rel="noopener" style="color:var(--key)">Stripe receipt</a> (expires after 30 days)</p>' : '') +
+      '</div>' +
+
+      '<div class="pn-sec"><h3>Documents</h3><div id="pnDocList"></div>' +
+      '<div class="pn-inline">' +
+      '<select id="pnDocKind" class="pn-in" style="flex:0 0 auto;width:auto">' +
+      '<option value="passport">Passport / ID</option><option value="enrolment">Enrolment certificate</option>' +
+      '<option value="payslip">Payslip</option><option value="contract">Employment contract</option>' +
+      '<option value="bank">Bank statement</option><option value="guarantor">Guarantor documents</option>' +
+      '<option value="other">Other</option></select>' +
+      '<input type="file" id="pnDocFile" class="pn-in" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx">' +
+      '<button class="pn-b" id="pnDocUp">Upload</button></div>' +
+      '<div class="pn-msg2" id="pnDocMsg"></div>' +
+      '<p class="pn-hint2">Stored private in an EU bucket, readable only through this panel. ' +
+      'Cover the BSN before uploading anything.</p></div>' +
+
+      (editable
+        ? '<div class="pn-sec"><h3>Edit the details we hold</h3>' +
+          '<p class="pn-hint2" style="margin-top:0">These feed every email and the landlord letter. ' +
+          'Payment fields are not editable: they record what happened with money.</p>' +
+          '<div class="pn-grid" id="pnEdit">' +
+          FIELDS.map(function(f){
+            var v = a[f.k] == null ? '' : a[f.k];
+            var input = f.type === 'select'
+              ? '<select id="pe_' + f.k + '" class="pn-in">' + f.options.map(function(o){
+                  return '<option value="' + esc(o) + '"' + (String(v) === o ? ' selected' : '') + '>' + esc(o || '\u2014') + '</option>';
+                }).join('') + '</select>'
+              : f.type === 'textarea'
+                ? '<textarea id="pe_' + f.k + '" class="pn-in">' + esc(v) + '</textarea>'
+                : '<input id="pe_' + f.k + '" class="pn-in" type="' + (f.type || 'text') + '" value="' + esc(v) + '">';
+            return '<div' + (f.wide ? ' class="wide"' : '') + '><label for="pe_' + f.k + '">' + esc(f.label) + '</label>' + input + '</div>';
+          }).join('') +
+          '<div><label for="pe_status">Status</label><select id="pe_status" class="pn-in">' +
+          ['pending','paid','expired','failed'].map(function(s){
+            return '<option value="' + s + '"' + (r.status === s ? ' selected' : '') + '>' + s + '</option>';
+          }).join('') + '</select></div>' +
+          '</div><div class="pn-acts"><button class="pn-b" id="pnSaveF">Save changes</button></div>' +
+          '<div class="pn-msg2" id="pnEditMsg"></div></div>'
+        : '') +
+
+      (r.letter ? '<div class="pn-sec"><h3>Landlord letter</h3><pre class="pn-pre">' + esc(r.letter) + '</pre></div>' : '') +
+
+      (editable
+        ? '<div class="pn-sec"><div class="pn-danger"><h4>Delete this application</h4>' +
+          '<p class="pn-hint2" style="margin-top:0">Permanent, and the right thing when somebody asks ' +
+          'to be erased. The payment record stays in Stripe.</p><div class="pn-inline">' +
+          '<input id="pnDel" class="pn-in" placeholder="Type ' + esc(r.reference) + ' to confirm">' +
+          '<button class="pn-b rd" id="pnDelBtn">Delete</button></div></div></div>'
+        : '');
+
+    $('#pnCopy').onclick = function(){
+      var c = $('#pnCopy');
+      (navigator.clipboard && window.isSecureContext
+        ? navigator.clipboard.writeText(r.reference) : Promise.reject()
+      ).then(function(){ c.textContent='Copied'; c.classList.add('done'); })
+       .catch(function(){ c.textContent='Select it manually'; });
+      setTimeout(function(){ c.textContent='Copy'; c.classList.remove('done'); }, 2200);
+    };
+
+    loadDocs(r.reference);
+
+    if(editable){
+      $('#pnSaveF').onclick = function(){
+        var fields = {};
+        FIELDS.forEach(function(f){ var el = $('#pe_' + f.k); if(el) fields[f.k] = el.value.trim(); });
+        var btn = $('#pnSaveF'); btn.disabled = true; btn.textContent = 'Saving\u2026';
+        api('update', {reference: r.reference, fields: fields, status: $('#pe_status').value}, 'POST')
+          .then(function(res){
+            note('#pnEditMsg', res.changed.length ? 'Saved: ' + res.changed.join(', ') : 'Nothing had changed.', true);
+            load();
+          })
+          .catch(function(e){ note('#pnEditMsg', e.message, false); })
+          .then(function(){ btn.disabled = false; btn.textContent = 'Save changes'; });
+      };
+
+      $('#pnDelBtn').onclick = function(){
+        var typed = $('#pnDel').value.trim();
+        if(typed !== r.reference) return note('#pnEditMsg', 'Type the reference exactly to confirm.', false);
+        if(!confirm('Delete ' + r.reference + ' permanently? This cannot be undone.')) return;
+        api('remove', {reference: r.reference, confirm: typed}, 'POST')
+          .then(function(){
+            selected = null;
+            $('#pnPane').innerHTML = '<div class="pn-empty">Deleted.</div>';
+            load();
+          })
+          .catch(function(e){ note('#pnEditMsg', e.message, false); });
+      };
+    }
+  }
+
+  function openViewing(ref){
+    var v = cachedRows.filter(function(x){ return x.reference === ref; })[0];
+    if(!v) return;
+    $('#pnPane').innerHTML =
+      '<h2 class="pn-h2">' + esc(v.name) + '</h2>' +
+      '<div class="pn-refbig"><code id="pnRefV">' + esc(v.reference) + '</code>' +
+      '<button class="pn-cp" id="pnCopy">Copy</button>' +
+      '<span class="pn-pill ' + esc(v.service) + '">' + esc(v.service) + ' \u00b7 ' + esc(v.status) + '</span></div>' +
+      '<div class="pn-sec"><h3>The property</h3><table class="pn-t">' +
+      row('Address', v.property_address) +
+      (v.property_url ? '<tr><td>Listing</td><td><a href="' + esc(v.property_url) + '" target="_blank" rel="noopener" style="color:var(--key)">open the listing</a></td></tr>' : '') +
+      row('Viewing type', v.attendance === 'recorded' ? 'Photos and video afterwards' : 'Live on a call') +
+      '</table></div>' +
+      '<div class="pn-sec"><h3>Requester</h3><table class="pn-t">' +
+      row('Email', v.email) + row('Phone', v.phone) +
+      row('Paid', when(v.paid_at)) +
+      row('Amount', v.amount_total != null ? '\u20ac' + (v.amount_total/100).toFixed(2) : '') +
+      row('Application', v.application_reference) +
+      '</table></div>' +
+      '<div class="pn-sec"><h3>Documents</h3><div id="pnDocList"></div>' +
+      '<div class="pn-inline">' +
+      '<select id="pnDocKind" class="pn-in" style="flex:0 0 auto;width:auto">' +
+      '<option value="other">Other</option><option value="passport">Passport / ID</option>' +
+      '<option value="enrolment">Enrolment certificate</option></select>' +
+      '<input type="file" id="pnDocFile" class="pn-in" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx">' +
+      '<button class="pn-b" id="pnDocUp">Upload</button></div>' +
+      '<div class="pn-msg2" id="pnDocMsg"></div></div>' +
+      '<div class="pn-sec"><h3>Scheduling</h3><div class="pn-grid">' +
+      '<div><label for="pnSched">Slot agreed</label><input id="pnSched" class="pn-in" value="' + esc(v.scheduled_for || '') + '" placeholder="Thu 14 Aug, 17:30"></div>' +
+      '<div><label for="pnAtt">Attended at</label><input id="pnAtt" class="pn-in" value="' + esc(v.attended_at || '') + '" placeholder="2026-08-14 17:30"></div>' +
+      '</div><div class="pn-acts"><button class="pn-b" id="pnVSave">Save</button></div>' +
+      '<div class="pn-msg2" id="pnVMsg"></div></div>';
+
+    $('#pnCopy').onclick = function(){
+      var c = $('#pnCopy');
+      (navigator.clipboard && window.isSecureContext
+        ? navigator.clipboard.writeText(ref) : Promise.reject()
+      ).then(function(){ c.textContent='Copied'; c.classList.add('done'); }).catch(function(){});
+      setTimeout(function(){ c.textContent='Copy'; c.classList.remove('done'); }, 2200);
+    };
+    loadDocs(ref);
+    $('#pnVSave').onclick = function(){
+      api('viewingUpdate', {reference: ref, scheduled_for: $('#pnSched').value.trim(),
+                            attended_at: $('#pnAtt').value.trim()}, 'POST')
+        .then(function(){ note('#pnVMsg', 'Saved.', true); load(); })
+        .catch(function(e){ note('#pnVMsg', e.message, false); });
+    };
+  }
+
+  /* --------------------------------------------------------------- documents
+     Available to staff as well: a landlord asks for an enrolment certificate and
+     somebody has to send it. Deleting stays with the owner. */
   function loadDocs(ref){
-    var box = $('#pnDocs');
-    if(!me || me.role !== 'owner'){ box.hidden = true; return; }
-    box.hidden = false;
-    $('#pnDocMsg').textContent = '';
+    var list = $('#pnDocList');
+    if(!list) return;
     fetch('/api/panel/document?reference=' + encodeURIComponent(ref), {credentials:'same-origin'})
       .then(function(r){ return r.json(); })
       .then(function(d){
-        var list = $('#pnDocList');
         if(!d.files || !d.files.length){
-          list.innerHTML = '<p class="pn-note" style="margin:0 0 4px">Nothing uploaded yet.</p>';
+          list.innerHTML = '<p class="pn-hint2" style="margin:0">Nothing uploaded yet.</p>';
           return;
         }
         list.innerHTML = d.files.map(function(f){
-          var kb = f.size_bytes < 1048576
-            ? Math.round(f.size_bytes/1024) + ' KB'
-            : (f.size_bytes/1048576).toFixed(1) + ' MB';
+          var kb = f.size_bytes < 1048576 ? Math.round(f.size_bytes/1024) + ' KB'
+                                          : (f.size_bytes/1048576).toFixed(1) + ' MB';
           return '<div class="pn-doc">' +
             '<span class="k">' + esc(f.kind) + '</span>' +
             '<span class="n">' + esc(f.filename) + '</span>' +
             '<span class="s">' + kb + '</span>' +
             '<a href="/api/panel/document?id=' + esc(f.id) + '&inline=1" target="_blank" rel="noopener">Open</a>' +
             '<a href="/api/panel/document?id=' + esc(f.id) + '">Download</a>' +
-            '<button class="del" data-id="' + esc(f.id) + '" data-n="' + esc(f.filename) + '">Delete</button>' +
+            (isOwner() ? '<button class="del" data-id="' + esc(f.id) + '" data-n="' + esc(f.filename) + '">Delete</button>' : '') +
             '</div>';
         }).join('');
         Array.prototype.forEach.call(list.querySelectorAll('button.del'), function(btn){
           btn.addEventListener('click', function(){
             if(!confirm('Delete ' + btn.dataset.n + ' permanently?')) return;
             fetch('/api/panel/document?id=' + encodeURIComponent(btn.dataset.id),
-                  {method:'DELETE', credentials:'same-origin'})
-              .then(function(){ loadDocs(ref); });
+                  {method:'DELETE', credentials:'same-origin'}).then(function(){ loadDocs(ref); });
           });
         });
       })
-      .catch(function(){ $('#pnDocList').innerHTML = '<p class="pn-note">Could not load documents.</p>'; });
+      .catch(function(){ list.innerHTML = '<p class="pn-hint2">Could not load documents.</p>'; });
+
+    var up = $('#pnDocUp');
+    if(up) up.onclick = function(){
+      var file = $('#pnDocFile').files[0];
+      if(!file) return note('#pnDocMsg', 'Choose a file first.', false);
+      if(file.size > 15 * 1024 * 1024) return note('#pnDocMsg', 'That file is over 15 MB.', false);
+      up.disabled = true; up.textContent = 'Uploading\u2026';
+      fetch('/api/panel/document?reference=' + encodeURIComponent(ref) +
+            '&filename=' + encodeURIComponent(file.name) +
+            '&kind=' + encodeURIComponent($('#pnDocKind').value), {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type': file.type || 'application/octet-stream'}, body: file
+      }).then(function(r){
+        return r.json().catch(function(){ return {}; }).then(function(b){ return {ok:r.ok,b:b}; });
+      }).then(function(r){
+        up.disabled = false; up.textContent = 'Upload';
+        if(r.ok){ $('#pnDocFile').value = ''; note('#pnDocMsg', 'Uploaded.', true); loadDocs(ref); return; }
+        note('#pnDocMsg', r.b.error === 'unsupported_type'
+          ? 'That file type is not accepted. Use PDF, JPG, PNG, WEBP, HEIC or DOCX.'
+          : r.b.error === 'too_large' ? 'That file is over 15 MB.'
+          : 'Upload failed: ' + (r.b.error || 'unknown'), false);
+      }).catch(function(){
+        up.disabled = false; up.textContent = 'Upload';
+        note('#pnDocMsg', 'Could not reach the server.', false);
+      });
+    };
   }
 
-  $('#pnDocUp').addEventListener('click', function(){
-    var file = $('#pnDocFile').files[0];
-    var msg = $('#pnDocMsg');
-    if(!file){ msg.textContent = 'Choose a file first.'; return; }
-    if(file.size > 15 * 1024 * 1024){ msg.textContent = 'That file is over 15 MB.'; return; }
-    var btn = $('#pnDocUp');
-    btn.disabled = true; btn.textContent = 'Uploading\u2026';
-    msg.textContent = '';
-    /* Sent as a raw body rather than multipart: one file, one request, and the
-       Worker can hash and store the bytes without parsing a form. */
-    fetch('/api/panel/document?reference=' + encodeURIComponent(selected) +
-          '&filename=' + encodeURIComponent(file.name) +
-          '&kind=' + encodeURIComponent($('#pnDocKind').value), {
-      method:'POST', credentials:'same-origin',
-      headers:{'Content-Type': file.type || 'application/octet-stream'},
-      body: file
-    }).then(function(r){
-      return r.json().catch(function(){ return {}; }).then(function(b){ return {ok:r.ok, b:b, status:r.status}; });
-    }).then(function(r){
-      btn.disabled = false; btn.textContent = 'Upload';
-      if(r.ok){ $('#pnDocFile').value = ''; loadDocs(selected); return; }
-      msg.textContent = r.b.error === 'unsupported_type'
-        ? 'That file type is not accepted. Use PDF, JPG, PNG, WEBP, HEIC or DOCX.'
-        : r.b.error === 'too_large' ? 'That file is over 15 MB.'
-        : 'Upload failed: ' + (r.b.error || 'unknown');
-    }).catch(function(){
-      btn.disabled = false; btn.textContent = 'Upload';
-      msg.textContent = 'Could not reach the server.';
-    });
+  /* -------------------------------------------------------------- new record */
+  $('#pnNew').addEventListener('click', function(){
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">New application</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">For somebody who paid by transfer, signed up over ' +
+      'the phone, or predates this system. A reference is generated automatically.</p>' +
+      '<div class="pn-grid">' +
+      FIELDS.map(function(f){
+        var input = f.type === 'select'
+          ? '<select id="nw_' + f.k + '" class="pn-in">' + f.options.map(function(o){
+              return '<option value="' + esc(o) + '">' + esc(o || '\u2014') + '</option>'; }).join('') + '</select>'
+          : f.type === 'textarea' ? '<textarea id="nw_' + f.k + '" class="pn-in"></textarea>'
+          : '<input id="nw_' + f.k + '" class="pn-in" type="' + (f.type || 'text') + '">';
+        return '<div' + (f.wide ? ' class="wide"' : '') + '><label for="nw_' + f.k + '">' + esc(f.label) + '</label>' + input + '</div>';
+      }).join('') +
+      '<div><label for="nw_status">Status</label><select id="nw_status" class="pn-in">' +
+      '<option value="pending">pending</option><option value="paid">paid</option></select></div>' +
+      '</div><div class="pn-acts"><button class="pn-b" id="nwGo">Create</button>' +
+      '<button class="pn-b gh" id="nwCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="nwMsg"></div>';
+    $('#pnModal').classList.add('open');
+    $('#nwCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+    $('#nwGo').onclick = function(){
+      var body = {status: $('#nw_status').value};
+      FIELDS.forEach(function(f){ var el = $('#nw_' + f.k); if(el && el.value.trim()) body[f.k] = el.value.trim(); });
+      api('create', body, 'POST').then(function(res){
+        $('#pnModal').classList.remove('open');
+        load();
+        setTimeout(function(){ openRow(res.reference); }, 600);
+      }).catch(function(e){ note('#nwMsg', e.message, false); });
+    };
+  });
+  $('#pnModal').addEventListener('click', function(e){
+    if(e.target.id === 'pnModal') $('#pnModal').classList.remove('open');
   });
 
-  function openRow(ref, kind, rows){
-    selected = ref;
-    loadDocs(ref);
-    Array.prototype.forEach.call(document.querySelectorAll('.pn-row'), function(el){
-      el.classList.toggle('on', el.dataset.ref === ref);
-    });
-    var box = $('#pnDetail');
-    box.hidden = false;
-
-    if(kind === 'viewings'){
-      var v = rows.filter(function(x){ return x.reference === ref; })[0];
-      if(!v) return;
-      box.innerHTML = '<h3 style="font-size:19px;margin-bottom:14px">' + esc(v.name) + '</h3>' +
-        '<table>' +
-        row('Reference', v.reference) + row('Service', v.service) + row('Status', v.status) +
-        row('Address', v.property_address) +
-        (v.property_url ? '<tr><td>Listing</td><td><a href="' + esc(v.property_url) +
-          '" target="_blank" rel="noopener" style="color:var(--key)">open</a></td></tr>' : '') +
-        row('Viewing type', v.attendance === 'recorded' ? 'Photos and video afterwards' : 'Live on a call') +
-        row('Email', v.email) + row('Phone', v.phone) +
-        row('Paid', when(v.paid_at)) +
-        row('Application', v.application_reference) +
-        '</table>' +
-        '<div class="pn-f" style="margin-top:18px"><label for="pnSched">Slot agreed</label>' +
-        '<input id="pnSched" value="' + esc(v.scheduled_for || '') + '" placeholder="Thu 14 Aug, 17:30"></div>' +
-        '<div class="pn-f"><label for="pnAtt">Attended at</label>' +
-        '<input id="pnAtt" value="' + esc(v.attended_at || '') + '" placeholder="2026-08-14 17:30"></div>' +
-        '<button class="btn btn-key" id="pnSave">Save</button>' +
-        '<div class="pn-msg" id="pnSaveMsg"></div>';
-      $('#pnSave').addEventListener('click', function(){
-        api('viewingUpdate', {reference: ref, scheduled_for: $('#pnSched').value.trim(),
-                              attended_at: $('#pnAtt').value.trim()}, 'POST')
-          .then(function(){
-            var m = $('#pnSaveMsg'); m.className = 'pn-msg show'; m.style.color = '#8FD3A3';
-            m.textContent = 'Saved.'; load();
-          })
-          .catch(function(e){
-            var m = $('#pnSaveMsg'); m.className = 'pn-msg show err'; m.textContent = e.message;
-          });
-      });
-      return;
-    }
-
-    box.innerHTML = '<p class="pn-note">Loading\u2026</p>';
-    api('detail', {reference: ref}).then(function(d){
-      var a = d.application, r = d.row;
-      box.innerHTML = '<h3 style="font-size:19px;margin-bottom:14px">' + esc(r.name) + '</h3>' +
-        '<table>' +
-        row('Reference', r.reference) + row('Status', r.status) +
-        row('Email', a.email || r.email) + row('Phone', a.phone) + row('Looking in', a.city) +
-        row('Situation', [a.employment, a.role, a.organisation].filter(Boolean).join(' \u00b7 ')) +
-        row('Monthly income', a.income ? '\u20ac' + a.income : '') +
-        row('Monthly budget', a.budget ? '\u20ac' + a.budget : '') +
-        row('Savings', a.savings ? '\u20ac' + a.savings : '') +
-        row('Guarantor income', a.guarantor_income ? '\u20ac' + a.guarantor_income : '') +
-        row('Available from', a.available_from) + row('Duration', a.duration) +
-        row('Traits', Array.isArray(a.personality) ? a.personality.join(', ') : a.personality) +
-        row('Hobbies', a.hobbies) + row('Notes', a.notes) +
-        row('Paid', when(r.paid_at)) +
-        row('Applicant emailed', r.applicant_emailed_at ? when(r.applicant_emailed_at) : 'never') +
-        '</table>' +
-        (r.letter ? '<h4 style="margin:20px 0 8px;font-size:13px;letter-spacing:.1em;' +
-          'text-transform:uppercase;color:var(--key)">Landlord letter</h4>' +
-          '<pre style="background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);' +
-          'border-radius:11px;padding:15px;font:12.6px/1.6 ui-monospace,Menlo,monospace;' +
-          'white-space:pre-wrap;color:rgba(237,239,242,.7);max-height:300px;overflow:auto">' +
-          esc(r.letter) + '</pre>' : '');
-    }).catch(function(e){ box.innerHTML = '<p class="pn-note">' + esc(e.message) + '</p>'; });
-  }
+  $('#pnRecon').addEventListener('click', function(){
+    var b = $('#pnRecon'), was = b.textContent;
+    b.disabled = true; b.textContent = 'Asking Stripe\u2026';
+    api('reconcile', {}, 'POST').then(function(r){
+      var bits = ['checked ' + r.checked];
+      if(r.settled.length) bits.push(r.settled.length + ' were actually paid: ' + r.settled.join(', '));
+      if(r.stillUnpaid.length) bits.push(r.stillUnpaid.length + ' genuinely unpaid');
+      if(r.errors.length) bits.push(r.errors.length + ' could not be checked');
+      alert(r.settled.length
+        ? 'Reconciled.\n\n' + bits.join('\n') + '\n\nThose are now marked paid.'
+        : 'Reconciled. ' + bits.join(', ') + '.\n\nNothing needed changing.');
+      load();
+      if(selected) openRow(selected);
+    }).catch(function(e){ alert('Could not reconcile:\n\n' + e.message); })
+      .then(function(){ b.disabled = false; b.textContent = was; });
+  });
 
   var t;
   $('#pnQ').addEventListener('input', function(){ clearTimeout(t); t = setTimeout(load, 350); });
   $('#pnStatus').addEventListener('change', load);
-  $('#pnKind').addEventListener('change', function(){ selected = null; load(); });
+  $('#pnRefresh').addEventListener('click', load);
+  $('#pnKind').addEventListener('change', function(){
+    selected = null;
+    $('#pnPane').innerHTML = '<div class="pn-empty"><div>Select an entry.</div></div>';
+    load();
+  });
 
-  /* Ask whether the cookie is still good before drawing anything. */
   fetch('/api/admin/me', {credentials:'same-origin'})
     .then(function(r){ return r.json(); })
     .then(function(d){ d.authenticated ? showPanel(d.user) : showLogin(); })
     .catch(showLogin);
 })();
 </script>
+</main>
+
 </main>
 
 <footer class="foot">

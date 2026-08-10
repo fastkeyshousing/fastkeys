@@ -12,13 +12,17 @@
 
 import { json, fail, sameOrigin, methodNotAllowed } from '../../../lib/http.js';
 import { currentUser } from '../../../lib/admin-auth.js';
+import { retrieveCheckoutSession } from '../../../lib/stripe.js';
 
 const REF_RE = /^FK-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
 const VREF_RE = /^FV-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
 const STATUSES = ['pending', 'paid', 'expired', 'failed'];
 
-const OWNER_ONLY = new Set(['update', 'remove', 'create', 'updateEmail']);
+/* Staff read the pipeline and handle documents. Anything that changes a record,
+ * creates one, or removes one stays with the owner: a viewing schedule is
+ * day-to-day work, an applicant's income figure is not. */
+const OWNER_ONLY = new Set(['update', 'remove', 'create', 'updateEmail', 'reconcile']);
 
 const esc = (s) => String(s).replace(/'/g, "''");
 
@@ -141,6 +145,76 @@ const routes = {
     await env.DB.prepare(`UPDATE applications SET ${sets.join(', ')} WHERE reference = ?1`)
       .bind(reference).run();
     return { ok: true, changed };
+  },
+
+  /* A record entered by hand: paid by transfer, taken over the phone, or
+   * predating this system. */
+  async create(env, params) {
+    const name = String(params.name || '').trim().slice(0, 120);
+    const email = String(params.email || '').trim().toLowerCase().slice(0, 254);
+    if (name.length < 2) throw new Error('A name is required');
+    if (!EMAIL_RE.test(email)) throw new Error('A valid email is required');
+    const status = STATUSES.includes(params.status) ? params.status : 'pending';
+
+    const application = { name, email };
+    for (const f of EDITABLE) {
+      if (params[f] !== undefined && params[f] !== '') application[f] = String(params[f]).slice(0, 600);
+    }
+    application.name = name;
+    application.email = email;
+
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = crypto.getRandomValues(new Uint8Array(8));
+    const chars = [...bytes].map((b) => alphabet[b % alphabet.length]);
+    const reference = `FK-${chars.slice(0, 5).join('')}-${chars.slice(5, 8).join('')}`;
+    const now = new Date().toISOString();
+
+    await env.DB.prepare(
+      `INSERT INTO applications (id, reference, status, name, email, payload, letter, created_at, paid_at)
+       VALUES (?1,?2,?3,?4,?5,?6,'',?7,?8)`
+    ).bind(crypto.randomUUID(), reference, status, name, email,
+           JSON.stringify(application), now, status === 'paid' ? now : null).run();
+
+    return { ok: true, reference };
+  },
+
+  /* Checks every pending row against Stripe and settles the ones that paid. The
+   * only thing in the system that looks backwards rather than reacting to an
+   * event, which is why a webhook that missed leaves a row stuck without it. */
+  async reconcile(env) {
+    if (!env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY is not set');
+    const rows = await env.DB.prepare(
+      `SELECT reference, stripe_session_id FROM applications
+        WHERE status = 'pending' AND stripe_session_id IS NOT NULL
+        ORDER BY created_at DESC LIMIT 60`
+    ).all();
+
+    const settled = [], stillUnpaid = [], errors = [];
+    for (const row of rows.results ?? []) {
+      try {
+        const s = await retrieveCheckoutSession(env, row.stripe_session_id);
+        if (s.payment_status === 'paid') {
+          await env.DB.prepare(
+            `UPDATE applications
+                SET status='paid', paid_at=COALESCE(paid_at, ?1),
+                    amount_total=?2, currency=?3
+              WHERE reference=?4`
+          ).bind(new Date().toISOString(), s.amount_total ?? null,
+                 s.currency ?? null, row.reference).run();
+          settled.push(row.reference);
+        } else if (s.status === 'expired') {
+          await env.DB.prepare(`UPDATE applications SET status='expired' WHERE reference=?1`)
+            .bind(row.reference).run();
+          stillUnpaid.push(row.reference);
+        } else {
+          stillUnpaid.push(row.reference);
+        }
+      } catch (err) {
+        errors.push(row.reference);
+        console.error('[reconcile]', row.reference, err);
+      }
+    }
+    return { checked: (rows.results ?? []).length, settled, stillUnpaid, errors };
   },
 
   async remove(env, { reference, confirm }) {
