@@ -77,11 +77,22 @@ export async function onRequestPost({ request, env, params }) {
 
   /* Always derive a hash, even with no such account. Returning early here is the
    * classic way an login endpoint tells an attacker which addresses are real. */
-  const candidate = await hashPassword(
-    password,
-    user?.salt || DECOY_SALT,
-    user?.iterations || ITERATIONS
-  );
+  let candidate;
+  try {
+    candidate = await hashPassword(
+      password,
+      user?.salt || DECOY_SALT,
+      user?.iterations || ITERATIONS
+    );
+  } catch (err) {
+    if (err.code === 'ITERATIONS_TOO_HIGH') {
+      console.error(`[admin] ${email} was created with an iteration count this runtime cannot compute. Reset the password.`);
+      return fail(503, 'password_needs_reset',
+        'account predates the iteration ceiling; re-run npm run admin:user for this email');
+    }
+    console.error('[admin] hashing failed:', err);
+    return fail(503, 'service_unavailable', String(err));
+  }
 
   const ok = !!user && !user.disabled && timingSafeEqual(candidate.hash, user.password_hash);
   if (!ok) {

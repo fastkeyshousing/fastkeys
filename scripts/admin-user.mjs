@@ -20,7 +20,10 @@ const has = (f) => argv.includes(f);
 const val = (f, d) => { const i = argv.indexOf(f); return i === -1 ? d : argv[i + 1]; };
 
 const LOCAL = has('--local');
-const ITERATIONS = 210_000;
+/* Must match lib/admin-auth.js. The Workers runtime rejects anything above
+ * 100,000, and a hash written here with a higher count can never be verified
+ * there. */
+const ITERATIONS = 100_000;
 
 const WRANGLER = (() => {
   const local = new URL('../node_modules/.bin/wrangler', import.meta.url).pathname;
