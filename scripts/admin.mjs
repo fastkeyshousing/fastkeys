@@ -87,6 +87,7 @@ async function d1(sql) {
 }
 
 const REF_RE = /^FK-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
+const VREF_RE = /^FV-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
 const STATUSES = ['pending', 'paid', 'expired', 'failed'];
 
 /* Same alphabet and shape the live form uses, so a record created here is
@@ -147,6 +148,53 @@ const routes = {
        SELECT COUNT(*) AS n FROM applications WHERE status='paid' AND applicant_emailed_at IS NULL;`
     );
     return { rows, counts, unemailed: unemailed[0]?.n ?? 0 };
+  },
+
+  /* Paid viewings, newest first. A separate route rather than a union with
+   * applications: the two have different columns and different next actions, and
+   * merging them would mean every row carrying half a set of empty fields. */
+  async viewings({ q, status }) {
+    const where = [];
+    if (status && status !== 'all') where.push(`status = '${esc(status)}'`);
+    if (q) {
+      const term = esc(q.toLowerCase());
+      where.push(
+        `(lower(reference) LIKE '%${term}%' OR lower(name) LIKE '%${term}%' ` +
+        `OR lower(email) LIKE '%${term}%' OR lower(property_url) LIKE '%${term}%')`
+      );
+    }
+    const [rows, counts] = await d1All(
+      `SELECT reference, service, status, name, email, phone, property_url,
+              application_reference, amount_total, currency, created_at, paid_at,
+              scheduled_for, attended_at, notified_at
+         FROM viewings
+        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+        ORDER BY COALESCE(paid_at, created_at) DESC LIMIT 300;
+       SELECT status, COUNT(*) AS n FROM viewings GROUP BY status;`
+    );
+    return { rows, counts };
+  },
+
+  /* Records that we have agreed a slot, or been. Both are things only you know,
+   * so they are typed in rather than inferred from anything. */
+  async viewingUpdate({ reference, scheduled_for, attended_at, status }) {
+    if (!VREF_RE.test(reference || '')) throw new Error('Not a valid viewing reference');
+    const sets = [];
+    if (scheduled_for !== undefined) {
+      sets.push(scheduled_for ? `scheduled_for = '${esc(scheduled_for)}'` : `scheduled_for = NULL`);
+    }
+    if (attended_at !== undefined) {
+      sets.push(attended_at ? `attended_at = '${esc(attended_at)}'` : `attended_at = NULL`);
+    }
+    if (status) {
+      if (!['pending', 'paid', 'expired', 'failed', 'refunded'].includes(status)) {
+        throw new Error('Not a valid status');
+      }
+      sets.push(`status = '${esc(status)}'`);
+    }
+    if (!sets.length) throw new Error('Nothing to change');
+    await d1(`UPDATE viewings SET ${sets.join(', ')} WHERE reference = '${esc(reference)}';`);
+    return { ok: true };
   },
 
   async detail({ reference }) {

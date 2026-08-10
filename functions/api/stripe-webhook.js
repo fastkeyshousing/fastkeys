@@ -173,6 +173,19 @@ export async function onRequestPost({ request, env, waitUntil }) {
      * pending row moves: if the session somehow already settled, the money is
      * the authority and we leave it alone. */
     if (event.type === 'checkout.session.async_payment_failed') {
+      /* Viewings live in their own table. Without this branch the update below
+       * matched zero rows and returned ok, leaving a failed viewing pending for
+       * ever while the buyer was told we were still confirming. */
+      if (session.metadata?.kind === 'viewing') {
+        await env.DB.prepare(
+          `UPDATE viewings SET status = 'failed', failed_at = ?1
+            WHERE stripe_session_id = ?2 AND status = 'pending'`
+        )
+          .bind(new Date().toISOString(), session.id)
+          .run();
+        return new Response('ok', { status: 200 });
+      }
+
       const update = await env.DB.prepare(
         `UPDATE applications
             SET status = 'failed', failed_at = ?1
@@ -217,8 +230,9 @@ export async function onRequestPost({ request, env, waitUntil }) {
     }
 
     if (event.type === 'checkout.session.expired') {
+      const table = session.metadata?.kind === 'viewing' ? 'viewings' : 'applications';
       await env.DB.prepare(
-        `UPDATE applications SET status = 'expired'
+        `UPDATE ${table} SET status = 'expired'
           WHERE stripe_session_id = ?1 AND status = 'pending'`
       )
         .bind(session.id)
@@ -230,6 +244,75 @@ export async function onRequestPost({ request, env, waitUntil }) {
      * methods it can arrive unpaid, and the async event follows later. */
     if (session.payment_status !== 'paid') {
       return new Response('ok, not yet paid', { status: 200 });
+    }
+
+    /* Viewings and applications share this endpoint because they share a Stripe
+     * account. metadata.kind is set when the session is created and is the only
+     * reliable way to tell them apart here. */
+    if (session.metadata?.kind === 'viewing') {
+      const update = await env.DB.prepare(
+        `UPDATE viewings
+            SET status = 'paid', paid_at = ?1, stripe_payment_intent = ?2,
+                amount_total = ?3, currency = ?4
+          WHERE stripe_session_id = ?5 AND status <> 'paid'`
+      )
+        .bind(
+          new Date().toISOString(),
+          typeof session.payment_intent === 'string' ? session.payment_intent : null,
+          session.amount_total ?? null,
+          session.currency ?? null,
+          session.id
+        )
+        .run();
+
+      if ((update.meta?.changes ?? 0) === 0) return new Response('ok', { status: 200 });
+
+      const row = await env.DB.prepare(
+        `SELECT reference, service, name, email, phone, property_url, payload,
+                application_reference
+           FROM viewings WHERE stripe_session_id = ?1`
+      )
+        .bind(session.id)
+        .first();
+
+      const tell = (async () => {
+        try {
+          if (!row) return;
+          const v = JSON.parse(row.payload);
+          const body = [
+            `Service:    ${row.service === 'express' ? 'EXPRESS (within 24h)' : 'Online viewing'}`,
+            `Name:       ${row.name}`,
+            `Email:      ${row.email}`,
+            `Phone:      ${row.phone}`,
+            `Property:   ${row.property_url}`,
+            v.property_address ? `Address:    ${v.property_address}` : null,
+            `Available:  ${v.availability}`,
+            v.questions ? `Questions:  ${v.questions}` : null,
+            row.application_reference ? `Application: ${row.application_reference}` : null,
+          ].filter(Boolean).join('\n');
+
+          const sent = await notifyPaid(env, {
+            reference: row.reference,
+            amount: formatAmount(session),
+            application: { name: row.name, email: row.email, phone: row.phone,
+                           city: '', employment: '', role: '', organisation: '',
+                           personality: [], hobbies: '' },
+            letter: body,
+          });
+          if (sent) {
+            await env.DB.prepare(`UPDATE viewings SET notified_at = ?1 WHERE stripe_session_id = ?2`)
+              .bind(new Date().toISOString(), session.id).run();
+          }
+          console.log(`[viewing] ${row.service} viewing ${row.reference} paid: ${row.property_url}`);
+        } catch (err) {
+          console.error('[viewing] notification failed:', err);
+        }
+      })();
+
+      if (typeof waitUntil === 'function') waitUntil(tell);
+      else await tell;
+
+      return new Response('ok', { status: 200 });
     }
 
     await markPaid(env, session, waitUntil);

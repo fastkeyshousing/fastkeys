@@ -16,6 +16,12 @@ SITE_URL = "https://fastkeyshousing.com"
 # The retired EUR 50.00 price was price_1Tz3FmAiFErDFrhod3Xg44m0.
 STRIPE_CONFIRMATION_PRICE_ID = "price_1U0N5PAiFErDFrho5U569Ja4"
 
+# Viewing services, sold separately from the application. Create both as one-off
+# products in Stripe and paste the price ids here. Until they are set, the
+# booking form returns not_configured rather than charging a wrong amount.
+STRIPE_ONLINE_VIEWING_PRICE_ID = "price_1U2vCoAiFErDFrhoqmnFWs1k"   # EUR 50.00, prod_V31FfDU65h8Jun
+STRIPE_EXPRESS_VIEWING_PRICE_ID = "price_1U2vCwAiFErDFrhoqeMmti2E"  # EUR 100.00, prod_V31FoTVeRsAZpe
+
 [[d1_databases]]
 binding = "DB"
 database_name = "fastkeys"

@@ -125,6 +125,10 @@ iframe{width:100%; height:520px; border:1px solid var(--line); border-radius:11p
 </header>
 
 <div class="tools">
+  <select id="kind">
+    <option value="applications">Applications</option>
+    <option value="viewings">Viewings</option>
+  </select>
   <input type="search" id="q" placeholder="Search reference, name or email" autocomplete="off">
   <select id="status">
     <option value="all">All statuses</option>
@@ -194,6 +198,7 @@ const FIELDS = [
 
 async function load() {
   $('#list').innerHTML = '<div class="spin">Loading…</div>';
+  if ($('#kind').value === 'viewings') return loadViewings();
   try {
     const { rows, counts, unemailed } = await api('list', { q: $('#q').value.trim(), status: $('#status').value });
     const by = Object.fromEntries(counts.map(c => [c.status, c.n]));
@@ -226,6 +231,91 @@ async function load() {
   } catch (e) {
     $('#list').innerHTML = `<div class="spin" style="color:var(--bad)">${esc(e.message)}</div>`;
   }
+}
+
+/* Viewings get their own list and pane: a viewing is an errand against one
+   property, and the useful columns are the listing, the slot and whether we have
+   been, none of which an application has. */
+async function loadViewings() {
+  try {
+    const { rows, counts } = await api('viewings', { q: $('#q').value.trim(), status: $('#status').value });
+    $('#stats').innerHTML =
+      `<span><b>${counts.reduce((s,c)=>s+c.n,0)}</b> total</span>` +
+      `<span><b>${(counts.find(c=>c.status==='paid')||{n:0}).n}</b> paid</span>`;
+    if (!rows.length) { $('#list').innerHTML = '<div class="spin">No viewings yet.</div>'; return; }
+    $('#list').innerHTML = rows.map(r => {
+      const flags = [];
+      if (r.status === 'paid' && !r.scheduled_for) flags.push('no slot agreed yet');
+      if (r.status === 'paid' && r.service === 'express' && !r.attended_at) flags.push('EXPRESS — 24h clock running');
+      return `<div class="row" data-ref="${esc(r.reference)}" data-kind="viewing">
+        <span class="nm">${esc(r.name)}</span>
+        <span class="pill ${esc(r.status)}">${esc(r.service)}</span>
+        <span class="ref">${esc(r.reference)}</span>
+        <span class="em">${esc(r.email)} · ${when(r.paid_at || r.created_at)}</span>
+        <span class="em" style="color:var(--soft)">${esc(String(r.property_url).slice(0,72))}</span>
+        ${flags.length ? `<span class="flag">⚠ ${esc(flags.join(' · '))}</span>` : ''}
+      </div>`;
+    }).join('');
+    document.querySelectorAll('.row').forEach(el =>
+      el.addEventListener('click', () => openViewing(el.dataset.ref, rows)));
+  } catch (e) {
+    $('#list').innerHTML = `<div class="spin" style="color:var(--bad)">${esc(e.message)}</div>`;
+  }
+}
+
+async function openViewing(ref, rows) {
+  const r = rows.find(x => x.reference === ref);
+  if (!r) return;
+  selected = ref;
+  document.querySelectorAll('.row').forEach(el => el.classList.toggle('sel', el.dataset.ref === ref));
+  $('#pane').classList.add('open');
+  $('#pane').innerHTML = `
+    <h2>${esc(r.name)}</h2>
+    <div class="refbig">
+      <code id="refv">${esc(r.reference)}</code>
+      <button class="copy" id="copyref">Copy</button>
+      <span class="pill ${esc(r.status)}">${esc(r.service)} · ${esc(r.status)}</span>
+    </div>
+    <div class="sec">
+      <h3>The property</h3>
+      <p style="font-size:14.6px;line-height:1.6"><a href="${esc(r.property_url)}" target="_blank" rel="noopener" style="color:var(--key)">${esc(r.property_url)}</a></p>
+    </div>
+    <div class="sec">
+      <h3>Requester</h3>
+      <table>
+        <tr><td>Email</td><td class="v">${esc(r.email)}</td></tr>
+        <tr><td>Phone</td><td class="v">${esc(r.phone)}</td></tr>
+        <tr><td>Paid</td><td class="v">${esc(when(r.paid_at))} · ${r.amount_total!=null?'€'+(r.amount_total/100).toFixed(2):'—'}</td></tr>
+        ${r.application_reference?`<tr><td>Application</td><td class="v">${esc(r.application_reference)}</td></tr>`:''}
+      </table>
+    </div>
+    <div class="sec">
+      <h3>Scheduling</h3>
+      <div class="edit">
+        <div><label for="v_sched">Slot agreed (free text)</label>
+          <input id="v_sched" value="${esc(r.scheduled_for||'')}" placeholder="Thu 14 Aug, 17:30"></div>
+        <div><label for="v_att">Attended at</label>
+          <input id="v_att" value="${esc(r.attended_at||'')}" placeholder="2026-08-14T17:30"></div>
+        <div><label for="v_status">Status</label>
+          <select id="v_status">${['pending','paid','expired','failed','refunded'].map(s=>
+            `<option value="${s}"${r.status===s?' selected':''}>${s}</option>`).join('')}</select></div>
+      </div>
+      <div class="actions"><button class="btn" id="vsave">Save</button></div>
+      <div class="note" id="vnote"></div>
+    </div>`;
+  $('#copyref').onclick = async () => {
+    try { await navigator.clipboard.writeText(ref); } catch {}
+    $('#copyref').textContent='Copied'; $('#copyref').classList.add('done');
+    setTimeout(()=>{ $('#copyref').textContent='Copy'; $('#copyref').classList.remove('done'); },2000);
+  };
+  $('#vsave').onclick = async () => {
+    try {
+      await api('viewingUpdate', { reference: ref, scheduled_for: $('#v_sched').value.trim(),
+        attended_at: $('#v_att').value.trim(), status: $('#v_status').value }, 'POST');
+      const n=$('#vnote'); n.textContent='Saved.'; n.className='note show ok';
+      load();
+    } catch (e) { const n=$('#vnote'); n.textContent=e.message; n.className='note show err'; }
+  };
 }
 
 async function open(ref) {
@@ -438,6 +528,15 @@ async function open(ref) {
 let t;
 $('#q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 450); });
 $('#status').addEventListener('change', load);
+$('#kind').addEventListener('change', () => {
+  /* The two lists have different actions, so the pane is cleared rather than
+     left showing an application next to a viewing list. */
+  selected = null;
+  $('#pane').innerHTML = '<div class="empty"><div>Select an entry.</div></div>';
+  $('#newapp').style.display = $('#kind').value === 'viewings' ? 'none' : '';
+  $('#reconcile').style.display = $('#kind').value === 'viewings' ? 'none' : '';
+  load();
+});
 $('#refresh').addEventListener('click', load);
 
 $('#newapp').addEventListener('click', () => {
