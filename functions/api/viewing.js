@@ -77,14 +77,14 @@ export async function onRequestPost({ request, env }) {
   try {
     await env.DB.prepare(
       `INSERT INTO viewings
-         (id, reference, service, status, name, email, phone, property_url,
-          payload, application_reference, created_at, ip_hash)
-       VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+         (id, reference, service, status, name, email, phone, property_address,
+          property_url, attendance, payload, application_reference, created_at, ip_hash)
+       VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`
     )
       .bind(
         id, reference, viewing.service, viewing.name, viewing.email, viewing.phone,
-        viewing.property_url, JSON.stringify(viewing),
-        viewing.application_reference, now, ipHash
+        viewing.property_address, viewing.property_url, viewing.attendance,
+        JSON.stringify(viewing), viewing.application_reference, now, ipHash
       )
       .run();
   } catch (err) {

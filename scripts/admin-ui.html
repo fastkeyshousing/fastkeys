@@ -94,6 +94,20 @@ pre{background:rgba(0,0,0,.22); border:1px solid var(--line); border-radius:11px
 iframe{width:100%; height:520px; border:1px solid var(--line); border-radius:11px; background:#fff; margin-top:11px}
 .spin{color:var(--dim); padding:26px 22px}
 
+/* documents */
+.docs{margin-top:12px}
+.doc{display:flex; align-items:center; gap:12px; padding:11px 13px; border-radius:10px;
+  background:rgba(0,0,0,.16); border:1px solid var(--line); margin-bottom:8px}
+.doc .n{flex:1; font-size:14px; word-break:break-all}
+.doc .s{font-size:12.4px; color:var(--dim); white-space:nowrap}
+.doc a{font-size:12.8px; color:var(--key); text-decoration:none; white-space:nowrap}
+.doc a:hover{text-decoration:underline}
+.docpath{font-family:ui-monospace,Menlo,monospace; font-size:12.3px; color:var(--dim);
+  background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:9px;
+  padding:9px 12px; margin-top:10px; word-break:break-all; display:flex; gap:10px; align-items:center}
+.docpath span{flex:1}
+.docempty{color:var(--dim); font-size:14px; padding:14px 0; line-height:1.6}
+
 /* editing */
 .edit{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px}
 @media (max-width:1200px){ .edit{grid-template-columns:1fr} }
@@ -252,7 +266,7 @@ async function loadViewings() {
         <span class="pill ${esc(r.status)}">${esc(r.service)}</span>
         <span class="ref">${esc(r.reference)}</span>
         <span class="em">${esc(r.email)} · ${when(r.paid_at || r.created_at)}</span>
-        <span class="em" style="color:var(--soft)">${esc(String(r.property_url).slice(0,72))}</span>
+        <span class="em" style="color:var(--soft)">${esc(r.property_address || "")}${r.property_url ? " · listing" : ""}</span>
         ${flags.length ? `<span class="flag">⚠ ${esc(flags.join(' · '))}</span>` : ''}
       </div>`;
     }).join('');
@@ -290,6 +304,10 @@ async function openViewing(ref, rows) {
       </table>
     </div>
     <div class="sec">
+      <h3>Documents held locally</h3>
+      <div class="docs" id="docs"><div class="docempty">Loading&hellip;</div></div>
+    </div>
+    <div class="sec">
       <h3>Scheduling</h3>
       <div class="edit">
         <div><label for="v_sched">Slot agreed (free text)</label>
@@ -308,6 +326,8 @@ async function openViewing(ref, rows) {
     $('#copyref').textContent='Copied'; $('#copyref').classList.add('done');
     setTimeout(()=>{ $('#copyref').textContent='Copy'; $('#copyref').classList.remove('done'); },2000);
   };
+  loadDocs(ref);
+
   $('#vsave').onclick = async () => {
     try {
       await api('viewingUpdate', { reference: ref, scheduled_for: $('#v_sched').value.trim(),
@@ -316,6 +336,35 @@ async function openViewing(ref, rows) {
       load();
     } catch (e) { const n=$('#vnote'); n.textContent=e.message; n.className='note show err'; }
   };
+}
+
+/* Reads the folder for one reference and lists what is in it. The folder is
+   created on first look, so there is always somewhere obvious to drop files. */
+async function loadDocs(ref) {
+  const box = $('#docs');
+  if (!box) return;
+  try {
+    const d = await api('documents', { reference: ref });
+    const path = `<div class="docpath"><span id="dpath">${esc(d.folder)}</span>
+      <button class="copy" id="dcopy">Copy path</button></div>`;
+    box.innerHTML = (d.files.length
+      ? d.files.map(f => `<div class="doc">
+          <span class="n">${esc(f.name)}</span>
+          <span class="s">${esc(f.size)}</span>
+          ${f.viewable ? `<a href="/file?k=${K}&reference=${encodeURIComponent(ref)}&name=${encodeURIComponent(f.name)}" target="_blank" rel="noopener">Open</a>` : ''}
+          <a href="/file?k=${K}&reference=${encodeURIComponent(ref)}&name=${encodeURIComponent(f.name)}&download=1">Download</a>
+        </div>`).join('')
+      : `<div class="docempty">Nothing here yet.${d.created ? ' The folder has just been created for you.' : ''}
+           Drop their passport, payslips and enrolment certificate into the path below.</div>`)
+      + path;
+    $('#dcopy').onclick = async () => {
+      try { await navigator.clipboard.writeText(d.folder); } catch {}
+      $('#dcopy').textContent = 'Copied'; $('#dcopy').classList.add('done');
+      setTimeout(() => { $('#dcopy').textContent = 'Copy path'; $('#dcopy').classList.remove('done'); }, 2000);
+    };
+  } catch (e) {
+    box.innerHTML = `<div class="docempty" style="color:var(--bad)">${esc(e.message)}</div>`;
+  }
 }
 
 async function open(ref) {
@@ -418,6 +467,15 @@ async function open(ref) {
       </div>
 
       <div class="sec">
+        <h3>Documents held locally</h3>
+        <p class="hint" style="margin-top:0">
+          On this machine only. Nothing here is uploaded, stored in the database, or reachable
+          from the website.
+        </p>
+        <div class="docs" id="docs"><div class="docempty">Loading&hellip;</div></div>
+      </div>
+
+      <div class="sec">
         <h3>Landlord letter</h3>
         <pre>${esc(row.letter || '')}</pre>
       </div>
@@ -492,6 +550,8 @@ async function open(ref) {
       const n = $('#editnote');
       n.textContent = msg; n.className = 'note show ' + (ok ? 'ok' : 'err');
     };
+
+    loadDocs(ref);
 
     $('#savefields').onclick = async () => {
       const fields = {};

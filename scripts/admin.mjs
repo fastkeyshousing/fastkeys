@@ -20,7 +20,8 @@
  */
 
 import { createServer } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, mkdirSync, createReadStream } from 'node:fs';
+import { resolve, join, sep, extname, basename } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -35,6 +36,19 @@ const PORT = Number(argv[argv.indexOf('--port') + 1]) || 8899;
 const TOKEN = randomBytes(16).toString('hex');
 
 const HTML = new URL('./admin-ui.html', import.meta.url);
+
+/* Where applicants' documents live. Defaults to a sibling of the repository,
+ * which is how the machine is laid out: .../files/website and .../files/documents.
+ * Resolved from the repo rather than hard-coded so a different machine, or a
+ * moved folder, only needs the flag.
+ *
+ * These files are the reason the panel is localhost only. Passports, payslips
+ * and bank statements never touch Cloudflare, never enter the database, and
+ * never leave this machine. */
+const DOCS_ROOT = resolve(
+  argv.includes('--docs') ? argv[argv.indexOf('--docs') + 1]
+                          : new URL('../../documents', import.meta.url).pathname
+);
 
 /* ------------------------------------------------------------------ env --- */
 function loadEnv() {
@@ -124,6 +138,36 @@ async function stripeSession(id) {
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || `Stripe HTTP ${res.status}`);
   return data;
+}
+
+/* Everything below resolves a path from a reference and then checks the result
+ * is still inside DOCS_ROOT. The reference is already constrained to
+ * FK-XXXXX-XXX or FV-XXXXX-XXX, which cannot contain a slash or a dot segment,
+ * but the containment check stays: one regex being loosened later should not
+ * turn into reading /etc/passwd. */
+function folderFor(reference) {
+  if (!REF_RE.test(reference) && !VREF_RE.test(reference)) {
+    throw new Error('Not a valid reference');
+  }
+  const dir = resolve(join(DOCS_ROOT, reference));
+  if (dir !== DOCS_ROOT && !dir.startsWith(DOCS_ROOT + sep)) {
+    throw new Error('Refusing to leave the documents folder');
+  }
+  return dir;
+}
+
+const MIME = {
+  '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
+  '.txt': 'text/plain', '.csv': 'text/csv', '.heic': 'image/heic',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+
+function human(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 const routes = {
@@ -480,6 +524,42 @@ const routes = {
     return { ok: true, deleted: reference };
   },
 
+  /* Lists what is on disk for one applicant. Creates the folder on first look,
+   * so there is somewhere obvious to drop files rather than a path you have to
+   * remember to make by hand. */
+  async documents({ reference }) {
+    const dir = folderFor(reference);
+    let created = false;
+    try {
+      statSync(dir);
+    } catch {
+      mkdirSync(dir, { recursive: true });
+      created = true;
+    }
+
+    const files = readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isFile() && !e.name.startsWith('.'))
+      .map((e) => {
+        const s = statSync(join(dir, e.name));
+        return {
+          name: e.name,
+          size: human(s.size),
+          modified: s.mtime.toISOString(),
+          viewable: ['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.txt'].includes(
+            extname(e.name).toLowerCase()
+          ),
+        };
+      })
+      .sort((a, b) => b.modified.localeCompare(a.modified));
+
+    return { folder: dir, files, created };
+  },
+
+  /* The reference's folder path, for pasting into a file manager. */
+  async documentsPath({ reference }) {
+    return { folder: folderFor(reference) };
+  },
+
   /* The rendered email, so it can be checked before sending. */
   async preview({ reference, kind }) {
     if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
@@ -517,7 +597,7 @@ function send(res, status, body, type = 'application/json') {
     /* This page must never be framed, and must not talk to anything remote. */
     'content-security-policy':
       "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
-      "img-src 'self' data:; frame-src 'self' data:; frame-ancestors 'none'",
+      "img-src 'self' data: blob:; frame-src 'self' data: blob:; object-src 'self'; frame-ancestors 'none'",
   });
   res.end(typeof body === 'string' ? body : JSON.stringify(body));
 }
@@ -539,9 +619,44 @@ createServer(async (req, res) => {
     return send(res, 200, page, 'text/html');
   }
 
+  const token = url.searchParams.get('k') || req.headers['x-admin-token'];
+
+  /* Serving a document is not a JSON route: it streams bytes with a real
+   * content type so the browser can preview a PDF or a photo in place. */
+  if (url.pathname === '/file') {
+    if (token !== TOKEN) return send(res, 403, 'bad token', 'text/plain');
+    try {
+      const dir = folderFor(url.searchParams.get('reference') || '');
+      /* basename strips any directory part, so ../../etc/passwd becomes passwd
+       * and then fails the containment check below anyway. Belt and braces. */
+      const name = basename(url.searchParams.get('name') || '');
+      if (!name || name.startsWith('.')) throw new Error('No such file');
+      const full = resolve(join(dir, name));
+      if (!full.startsWith(dir + sep)) throw new Error('Refusing to leave the folder');
+      const s = statSync(full);
+      if (!s.isFile()) throw new Error('Not a file');
+
+      const type = MIME[extname(name).toLowerCase()] || 'application/octet-stream';
+      const download = url.searchParams.get('download') === '1';
+      res.writeHead(200, {
+        'content-type': type,
+        'content-length': s.size,
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+        'content-disposition':
+          `${download ? 'attachment' : 'inline'}; filename="${name.replace(/["\\]/g, '')}"`,
+      });
+      return createReadStream(full).pipe(res);
+    } catch (err) {
+      /* The raw error carries the absolute path, which is needless detail to put
+       * in a response. It goes to the terminal instead. */
+      console.warn('[file]', err.message);
+      return send(res, 404, 'No such file', 'text/plain');
+    }
+  }
+
   if (!url.pathname.startsWith('/api/')) return send(res, 404, { error: 'not found' });
 
-  const token = url.searchParams.get('k') || req.headers['x-admin-token'];
   if (token !== TOKEN) return send(res, 403, { error: 'bad token' });
 
   const name = url.pathname.slice(5);
@@ -571,6 +686,7 @@ createServer(async (req, res) => {
   const mode = LOCAL ? 'LOCAL scratch database' : 'PRODUCTION database';
   console.log(`\n  \x1b[1mFastKeys admin\x1b[0m  \x1b[2m${mode}\x1b[0m\n`);
   console.log(`  \x1b[36mhttp://127.0.0.1:${PORT}/?k=${TOKEN}\x1b[0m\n`);
+  console.log(`  \x1b[2mDocuments: ${DOCS_ROOT}\x1b[0m`);
   console.log('  \x1b[2mOpen that link. The token changes each time you start it.');
   console.log('  Reachable only from this machine. Ctrl+C to stop.\x1b[0m\n');
 });

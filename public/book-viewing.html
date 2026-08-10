@@ -623,6 +623,23 @@ button{font:inherit; color:inherit}
 .bv-err.show{grid-template-rows:1fr; opacity:1; margin-top:7px}
 .bv-err span{overflow:hidden; min-height:0; display:block; color:#F4A9A9; font-size:13px; line-height:1.45}
 .field.bad input,.field.bad textarea{border-color:#C4666A; background:rgba(196,102,106,.08)}
+.bv-hint{font-size:13px; line-height:1.55; color:rgba(237,239,242,.5); margin-top:7px}
+.bv-hint a{color:var(--key); font-weight:600}
+.bv-choice{display:grid; gap:12px; margin-top:2px}
+.bv-opt{position:relative; display:block; background:rgba(255,255,255,.035);
+  border:1.5px solid rgba(255,255,255,.1); border-radius:14px; padding:16px 18px; cursor:pointer;
+  transition:border-color .2s, background .2s}
+.bv-opt:hover{border-color:rgba(224,163,94,.4)}
+.bv-opt.on{border-color:var(--key); background:linear-gradient(158deg,rgba(224,163,94,.14),rgba(224,163,94,.03))}
+.bv-opt input{position:absolute; opacity:0; pointer-events:none; width:auto; left:0; top:0}
+.bv-opt .h{display:block; font-size:15.5px; font-weight:650; color:#fff}
+.bv-opt .d{display:block; font-size:13.8px; line-height:1.6; color:rgba(237,239,242,.65); margin-top:5px}
+.bv-chips{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
+.bv-chip{background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.14); border-radius:999px;
+  padding:7px 14px; font-size:13.2px; color:rgba(237,239,242,.8); cursor:pointer;
+  transition:background .15s, border-color .15s}
+.bv-chip:hover{background:rgba(224,163,94,.14); border-color:rgba(224,163,94,.45); color:#fff}
+.bv-chip.used{opacity:.4; pointer-events:none}
 .bv-total{display:flex; align-items:baseline; justify-content:space-between; padding:18px 0;
   border-top:1px solid rgba(255,255,255,.1); margin-top:8px}
 .bv-total b{font-family:var(--display); font-size:30px; font-weight:500; color:#fff}
@@ -728,14 +745,45 @@ button{font:inherit; color:inherit}
 
     <div class="bv-form" style="max-width:640px">
       <div class="field">
-        <label for="property_url">Link to the listing</label>
-        <input id="property_url" type="url" placeholder="https://www.pararius.nl/..." required>
-        <div class="bv-err" id="e_property_url"><span></span></div>
+        <label for="property_address">Full address of the property</label>
+        <input id="property_address" type="text" placeholder="Brusselsestraat 12, 6211 PC Maastricht" required autocomplete="off">
+        <div class="bv-err" id="e_property_address"><span></span></div>
+        <!-- A link rather than an embedded map. Places Autocomplete needs a billed
+             API key and a third-party script on a page that takes payments; this
+             costs nothing, adds no dependency, and lets both sides check the same
+             thing before anyone travels anywhere. -->
+        <p class="bv-hint">Street, number, postcode and city.
+          <a href="#" id="mapCheck" target="_blank" rel="noopener" hidden>Check it on Google Maps &rarr;</a>
+        </p>
       </div>
 
       <div class="field">
-        <label for="property_address">Address, if you know it (optional)</label>
-        <input id="property_address" type="text" placeholder="Brusselsestraat 12, Maastricht">
+        <label for="property_url">Link to the listing (optional)</label>
+        <input id="property_url" type="url" placeholder="https://www.pararius.nl/...">
+        <div class="bv-err" id="e_property_url"><span></span></div>
+        <p class="bv-hint">Helpful if there is one, but plenty of places only circulate in
+          Facebook groups or by message. The address is what we need.</p>
+      </div>
+
+      <div class="field">
+        <label>How do you want the viewing?</label>
+        <div class="bv-choice">
+          <label class="bv-opt" id="optLive">
+            <input type="radio" name="attendance" value="live">
+            <span class="h">Live on a call with us</span>
+            <span class="d">We ring you on video from inside the property. You see it as we walk
+              it and can ask follow-up questions in the moment. Needs you free at whatever slot the
+              landlord gives us, which is often short notice.</span>
+          </label>
+          <label class="bv-opt" id="optRec">
+            <input type="radio" name="attendance" value="recorded">
+            <span class="h">Photos and video sent afterwards</span>
+            <span class="d">We film and photograph everything, ask your questions on your behalf,
+              and send it all with the written summary the same day. Better if you are in another
+              timezone or cannot drop things at short notice.</span>
+          </label>
+        </div>
+        <div class="bv-err" id="e_attendance"><span></span></div>
       </div>
 
       <div class="two">
@@ -771,8 +819,22 @@ button{font:inherit; color:inherit}
       </div>
 
       <div class="field">
-        <label for="questions">Anything you want us to ask or check? (optional)</label>
-        <textarea id="questions" placeholder="Is there damp in the bathroom? What is the noise like from the street? Can I register at the address?"></textarea>
+        <label for="questions">What should we ask or check?</label>
+        <textarea id="questions" required placeholder="Type your own, or tap the suggestions below."></textarea>
+        <div class="bv-err" id="e_questions"><span></span></div>
+        <p class="bv-hint">This is the difference between a viewing and a useful viewing.
+          Tap any of these to add them:</p>
+        <div class="bv-chips" id="qChips">
+          <button type="button" class="bv-chip" data-q="Can I register at this address (inschrijven bij de gemeente)?">Registration at the address</button>
+          <button type="button" class="bv-chip" data-q="Does this rent qualify for huurtoeslag?">Huurtoeslag eligible</button>
+          <button type="button" class="bv-chip" data-q="How much noise comes from the street, the neighbours and the building itself?">Noise</button>
+          <button type="button" class="bv-chip" data-q="Who else lives there, and what are they like?">Housemates</button>
+          <button type="button" class="bv-chip" data-q="Is there damp or mould, especially in the bathroom and behind furniture?">Damp and mould</button>
+          <button type="button" class="bv-chip" data-q="What is included in the rent: gas, water, electricity, internet?">What is included</button>
+          <button type="button" class="bv-chip" data-q="What is the contract type and minimum term, and what notice must I give?">Contract and notice</button>
+          <button type="button" class="bv-chip" data-q="How is it heated, and what is the energy label?">Heating and energy label</button>
+          <button type="button" class="bv-chip" data-q="Is there secure bike storage?">Bike storage</button>
+        </div>
       </div>
 
       <label class="bv-check">
@@ -835,9 +897,18 @@ button{font:inherit; color:inherit}
   });
   syncService();
 
+  /* Address is the required one now; the listing link only has to be valid if
+     something was typed into it. */
   var RULES = [
-    {id:'property_url', ok:function(){ return val('property_url').length > 6 && /\./.test(val('property_url')); },
-     msg:'Please paste the link to the listing. It is the one thing we cannot work without.'},
+    {id:'property_address', ok:function(){ return val('property_address').length >= 6; },
+     msg:'We need the full address: street, number, postcode and city. It is what we navigate to.'},
+    {id:'property_url', ok:function(){ var v=val('property_url');
+       return !v || (v.length > 6 && /\./.test(v)); },
+     msg:'That link does not look right. Leave it blank if there is no listing page.'},
+    {id:'attendance', ok:function(){ return !!form.querySelector('input[name="attendance"]:checked'); },
+     msg:'Please choose whether you want to join live or receive photos and video afterwards.'},
+    {id:'questions', ok:function(){ return val('questions').length >= 10; },
+     msg:'Tell us what to ask or check, even just one thing. Tap a suggestion if it is easier.'},
     {id:'name', ok:function(){ return val('name').length >= 2; }, msg:'Please enter your full name.'},
     {id:'email', ok:function(){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val('email')); },
      msg:'That email address does not look right.'},
@@ -871,6 +942,46 @@ button{font:inherit; color:inherit}
     if(f){ f.addEventListener('input', function(){ clearErr(r.id); });
            f.addEventListener('change', function(){ clearErr(r.id); }); }
   });
+
+  /* Attendance choice */
+  function syncAttendance(){
+    var picked = form.querySelector('input[name="attendance"]:checked');
+    var v = picked ? picked.value : null;
+    $('#optLive').classList.toggle('on', v === 'live');
+    $('#optRec').classList.toggle('on', v === 'recorded');
+    clearErr('attendance');
+  }
+  form.querySelectorAll('input[name="attendance"]').forEach(function(r){
+    r.addEventListener('change', syncAttendance);
+  });
+
+  /* Suggestion chips append to whatever they have already written rather than
+     replacing it, so tapping three does not throw away the first two. */
+  document.querySelectorAll('.bv-chip').forEach(function(chip){
+    chip.addEventListener('click', function(){
+      var box = $('#questions');
+      var current = box.value.trim();
+      box.value = current ? current + '\n' + chip.dataset.q : chip.dataset.q;
+      chip.classList.add('used');
+      clearErr('questions');
+      box.dispatchEvent(new Event('input'));
+    });
+  });
+
+  /* Opens a Google Maps search for whatever they typed, so a wrong postcode is
+     caught by them now rather than by us standing in the wrong street. */
+  var addr = $('#property_address'), mapLink = $('#mapCheck');
+  function syncMap(){
+    var v = addr.value.trim();
+    if(v.length >= 6){
+      mapLink.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(v);
+      mapLink.hidden = false;
+    } else {
+      mapLink.hidden = true;
+    }
+  }
+  addr.addEventListener('input', syncMap);
+  syncMap();
 
   function fail(msg){ var e=$('#formError'); e.textContent=msg; e.style.display='block'; return false; }
 
@@ -910,6 +1021,7 @@ button{font:inherit; color:inherit}
         service: service(),
         property_url: val('property_url'),
         property_address: val('property_address'),
+        attendance: (form.querySelector('input[name="attendance"]:checked')||{}).value,
         name: val('name'), email: val('email'), phone: val('phone'),
         application_reference: val('application_reference'),
         availability: val('availability'), questions: val('questions'),
