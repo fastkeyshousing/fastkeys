@@ -13,6 +13,7 @@
 import { json, fail, sameOrigin, methodNotAllowed } from '../../../lib/http.js';
 import { currentUser } from '../../../lib/admin-auth.js';
 import { retrieveCheckoutSession } from '../../../lib/stripe.js';
+import { reminderEmail } from '../../../lib/reminder-email.js';
 
 const REF_RE = /^FK-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
 const VREF_RE = /^FV-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
@@ -44,7 +45,7 @@ const routes = {
     }
     const rows = await env.DB.prepare(
       `SELECT reference, status, name, email, amount_total, currency, created_at,
-              paid_at, notified_at, applicant_emailed_at
+              paid_at, notified_at, applicant_emailed_at, reminder_sent_at, reminder_count
          FROM applications
         ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
         ORDER BY COALESCE(paid_at, created_at) DESC LIMIT 300`
@@ -68,7 +69,8 @@ const routes = {
     const rows = await env.DB.prepare(
       `SELECT reference, service, status, name, email, phone, property_address,
               property_url, attendance, application_reference, amount_total, currency,
-              created_at, paid_at, scheduled_for, attended_at
+              created_at, paid_at, scheduled_for, attended_at,
+              reminder_sent_at, reminder_count
          FROM viewings
         ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
         ORDER BY COALESCE(paid_at, created_at) DESC LIMIT 300`
@@ -215,6 +217,86 @@ const routes = {
       }
     }
     return { checked: (rows.results ?? []).length, settled, stillUnpaid, errors };
+  },
+
+  /* Nudges somebody whose payment did not complete. Open to staff: chasing a
+   * failed payment is ordinary follow-up work, and it sends a fixed template to
+   * an address already on file, so there is no way to use it to write arbitrary
+   * mail to an arbitrary person.
+   *
+   * Never sent to a paid record. That would tell somebody who has paid that they
+   * have not, which is the single worst thing this button could do. */
+  async remind(env, { reference, force }, user) {
+    const isViewing = VREF_RE.test(reference || '');
+    if (!isViewing && !REF_RE.test(reference || '')) throw new Error('Not a valid reference');
+    if (!env.RESEND_API_KEY || !env.NOTIFY_FROM) {
+      throw new Error('Email is not configured on this deployment');
+    }
+
+    const table = isViewing ? 'viewings' : 'applications';
+    const row = await env.DB.prepare(
+      `SELECT reference, email, payload, status, stripe_session_id,
+              reminder_count, reminder_sent_at
+         FROM ${table} WHERE reference = ?1`
+    ).bind(reference).first();
+    if (!row) throw new Error('No record with that reference');
+
+    if (row.status === 'paid') throw new Error('This one is paid. Do not chase it.');
+    if (!['pending', 'failed', 'expired'].includes(row.status)) {
+      throw new Error(`Nothing to chase: this is "${row.status}"`);
+    }
+
+    /* Two is the ceiling. One nudge is a service, a second is a fair reminder,
+     * and beyond that we are pestering somebody who has told us no by silence. */
+    const already = row.reminder_count ?? 0;
+    if (already >= 2) throw new Error('Two reminders have already gone out. Leave it there.');
+    if (already >= 1 && !force) {
+      throw new Error(`Already reminded once on ${String(row.reminder_sent_at || '').slice(0, 10)}. Send again?`);
+    }
+
+    let payload = {};
+    try { payload = JSON.parse(row.payload); } catch { /* fall back to columns */ }
+    if (!payload.email) payload.email = row.email;
+    if (!payload.name) payload.name = row.name;
+
+    const site = (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '');
+    const support = env.NOTIFY_EMAIL || 'hello@fastkeyshousing.com';
+    /* Applications can resume against the stored record; a viewing has no retry
+     * endpoint, so it goes back to the short booking form. */
+    const resumeUrl = isViewing
+      ? `${site}/book-viewing`
+      : (row.stripe_session_id
+          ? `${site}/payment-failed?session_id=${encodeURIComponent(row.stripe_session_id)}`
+          : `${site}/apply`);
+
+    const { subject, html, text } = reminderEmail({
+      application: payload, reference: row.reference, resumeUrl,
+      siteUrl: site, supportEmail: support, kind: isViewing ? 'viewing' : 'application',
+    });
+
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'content-type': 'application/json',
+        /* Keyed on the attempt number, so a double click cannot send twice but a
+         * deliberate second reminder still can. */
+        'idempotency-key': `reminder-${row.reference}-${already + 1}`,
+      },
+      body: JSON.stringify({
+        from: env.NOTIFY_FROM, to: [payload.email], reply_to: support, subject, html, text,
+      }),
+    });
+    if (!res.ok) throw new Error(`Could not send: ${res.status} ${await res.text()}`);
+
+    await env.DB.prepare(
+      `UPDATE ${table}
+          SET reminder_sent_at = ?1, reminder_count = ?2, reminder_sent_by = ?3
+        WHERE reference = ?4`
+    ).bind(new Date().toISOString(), already + 1, user.email, row.reference).run();
+
+    console.log(`[remind] ${user.email} chased ${row.reference} (attempt ${already + 1})`);
+    return { ok: true, sentTo: payload.email, attempt: already + 1 };
   },
 
   async remove(env, { reference, confirm }) {

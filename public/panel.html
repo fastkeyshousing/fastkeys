@@ -1026,6 +1026,20 @@ textarea.pn-in{min-height:60px; resize:vertical}
       (r.receipt_url ? '<p class="pn-hint2"><a href="' + esc(r.receipt_url) + '" target="_blank" rel="noopener" style="color:var(--key)">Stripe receipt</a> (expires after 30 days)</p>' : '') +
       '</div>' +
 
+      (r.status !== 'paid'
+        ? '<div class="pn-sec"><h3>Chase this payment</h3>' +
+          '<p class="pn-hint2" style="margin-top:0">This is <b>' + esc(r.status) + '</b>. ' +
+          'If Stripe shows the money arrived, press Reconcile first. Otherwise send them a ' +
+          'reminder with a link that resumes their stored answers.</p>' +
+          (r.reminder_count
+            ? '<p class="pn-hint2">Already reminded ' + r.reminder_count +
+              ' time(s), last on ' + esc(when(r.reminder_sent_at)) + '.</p>' : '') +
+          '<div class="pn-acts"><button class="pn-b" id="pnRemind">' +
+          (r.reminder_count ? 'Send another reminder' : 'Send payment reminder') +
+          ' to ' + esc(r.email) + '</button></div>' +
+          '<div class="pn-msg2" id="pnRemindMsg"></div></div>'
+        : '') +
+
       '<div class="pn-sec"><h3>Documents</h3><div id="pnDocList"></div>' +
       '<div class="pn-inline">' +
       '<select id="pnDocKind" class="pn-in" style="flex:0 0 auto;width:auto">' +
@@ -1083,6 +1097,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
 
     loadDocs(r.reference);
+    wireRemind(r.reference);
 
     if(editable){
       $('#pnSaveF').onclick = function(){
@@ -1140,6 +1155,17 @@ textarea.pn-in{min-height:60px; resize:vertical}
       '<input type="file" id="pnDocFile" class="pn-in" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx">' +
       '<button class="pn-b" id="pnDocUp">Upload</button></div>' +
       '<div class="pn-msg2" id="pnDocMsg"></div></div>' +
+      (v.status !== 'paid'
+        ? '<div class="pn-sec"><h3>Chase this payment</h3>' +
+          '<p class="pn-hint2" style="margin-top:0">This booking is <b>' + esc(v.status) + '</b>.</p>' +
+          (v.reminder_count
+            ? '<p class="pn-hint2">Already reminded ' + v.reminder_count +
+              ' time(s), last on ' + esc(when(v.reminder_sent_at)) + '.</p>' : '') +
+          '<div class="pn-acts"><button class="pn-b" id="pnRemind">' +
+          (v.reminder_count ? 'Send another reminder' : 'Send payment reminder') +
+          '</button></div><div class="pn-msg2" id="pnRemindMsg"></div></div>'
+        : '') +
+
       '<div class="pn-sec"><h3>Scheduling</h3><div class="pn-grid">' +
       '<div><label for="pnSched">Slot agreed</label><input id="pnSched" class="pn-in" value="' + esc(v.scheduled_for || '') + '" placeholder="Thu 14 Aug, 17:30"></div>' +
       '<div><label for="pnAtt">Attended at</label><input id="pnAtt" class="pn-in" value="' + esc(v.attended_at || '') + '" placeholder="2026-08-14 17:30"></div>' +
@@ -1154,11 +1180,43 @@ textarea.pn-in{min-height:60px; resize:vertical}
       setTimeout(function(){ c.textContent='Copy'; c.classList.remove('done'); }, 2200);
     };
     loadDocs(ref);
+    wireRemind(ref);
     $('#pnVSave').onclick = function(){
       api('viewingUpdate', {reference: ref, scheduled_for: $('#pnSched').value.trim(),
                             attended_at: $('#pnAtt').value.trim()}, 'POST')
         .then(function(){ note('#pnVMsg', 'Saved.', true); load(); })
         .catch(function(e){ note('#pnVMsg', e.message, false); });
+    };
+  }
+
+  /* Open to staff. The server enforces the two-reminder ceiling and refuses
+     outright on a paid record, so this only decides what to draw and when to
+     ask for confirmation. */
+  function wireRemind(ref){
+    var btn = $('#pnRemind');
+    if(!btn) return;
+    btn.onclick = function(){
+      var was = btn.textContent;
+      var send = function(force){
+        btn.disabled = true; btn.textContent = 'Sending\u2026';
+        api('remind', {reference: ref, force: !!force}, 'POST')
+          .then(function(r){
+            note('#pnRemindMsg', 'Reminder ' + r.attempt + ' sent to ' + r.sentTo + '.', true);
+            load();
+            btn.disabled = true; btn.textContent = 'Reminder sent';
+          })
+          .catch(function(e){
+            btn.disabled = false; btn.textContent = was;
+            /* The server asks rather than silently repeating, because a second
+               nudge should be somebody's decision and not a stray double click. */
+            if(/Send again\?/.test(e.message)){
+              if(confirm(e.message)) send(true);
+              return;
+            }
+            note('#pnRemindMsg', e.message, false);
+          });
+      };
+      send(false);
     };
   }
 
