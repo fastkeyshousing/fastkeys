@@ -11,6 +11,7 @@
 /book-viewing.html /book-viewing 301
 /viewing-confirmed.html /viewing-confirmed 301
 /viewing-failed.html /viewing-failed 301
+/panel.html /panel 301
 
 # Anything shared while the site lived under the old GitHub Pages path.
 /fastkeys/*  /:splat  301

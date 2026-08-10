@@ -26,3 +26,15 @@ STRIPE_EXPRESS_VIEWING_PRICE_ID = "price_1U2vCwAiFErDFrhoqeMmti2E"  # EUR 100.00
 binding = "DB"
 database_name = "fastkeys"
 database_id = "7afc3947-69e8-4f9e-ad69-6b82c6af6186"
+
+# Applicant documents. Create with EU jurisdiction so the files stay in the EEA,
+# as the Terms promise:
+#
+#   npx wrangler r2 bucket create fastkeys-documents --jurisdiction eu
+#
+# The bucket must stay private. Never attach a public r2.dev URL or a custom
+# domain to it: every read goes through /api/panel/document, which checks the
+# session and the role first.
+[[r2_buckets]]
+binding = "DOCS"
+bucket_name = "fastkeys-documents"

@@ -35,6 +35,60 @@ const LOCAL = argv.includes('--local');
 const PORT = Number(argv[argv.indexOf('--port') + 1]) || 8899;
 const TOKEN = randomBytes(16).toString('hex');
 
+/* Sharing this with staff.
+ *
+ * --tunnel puts the panel behind Cloudflare Access instead of the boot token.
+ * Access authenticates the person and passes their email in a header, which is
+ * the only way to have a real audit trail: a shared token makes everyone
+ * anonymous and identical, so "who deleted that record" has no answer.
+ *
+ * Trusting that header is safe only because the server still binds to 127.0.0.1
+ * and the only thing that can reach it is cloudflared running on this machine.
+ * Bind this to 0.0.0.0 and anyone on the network can forge the header and walk
+ * straight in. Do not do that. */
+const TUNNEL = argv.includes('--tunnel');
+
+/* Who may do what. Absent file means single-user: you, with everything. */
+function loadRoles() {
+  try {
+    const raw = readFileSync(new URL('../admin-users.json', import.meta.url), 'utf8');
+    const parsed = JSON.parse(raw);
+    const map = {};
+    for (const [email, role] of Object.entries(parsed)) {
+      map[email.trim().toLowerCase()] = role === 'owner' ? 'owner' : 'staff';
+    }
+    return map;
+  } catch {
+    return null;
+  }
+}
+const ROLES = loadRoles();
+
+/* Staff can read the pipeline and schedule viewings. They cannot see identity
+ * documents, cannot delete anybody, and cannot send email in your name.
+ *
+ * The documents restriction is the point of the whole arrangement: passports and
+ * payslips were kept off the cloud deliberately, and putting the panel on a
+ * tunnel would quietly undo that if staff could open them from anywhere. */
+const OWNER_ONLY = new Set([
+  'documents', 'documentsPath',   // identity documents
+  'remove',                        // deletion
+  'resend', 'remind',              // sending as you
+  'create', 'update',              // editing records
+  'updateEmail',
+]);
+
+function identify(req) {
+  if (!TUNNEL) return { email: 'local', role: 'owner' };
+  const email = String(req.headers['cf-access-authenticated-user-email'] || '')
+    .trim().toLowerCase();
+  if (!email) return null;
+  if (!ROLES) return { email, role: 'owner' };
+  const role = ROLES[email];
+  if (!role) return null;
+  return { email, role };
+}
+
 const HTML = new URL('./admin-ui.html', import.meta.url);
 
 /* Where applicants' documents live. Defaults to a sibling of the repository,
@@ -607,13 +661,19 @@ createServer(async (req, res) => {
 
   /* Every response is either the shell or an authenticated call. */
   if (url.pathname === '/' ) {
-    if (url.searchParams.get('k') !== TOKEN) {
+    const who = identify(req);
+    if (!who) {
+      return send(res, 403, 'Your account is not on the list for this panel.', 'text/plain');
+    }
+    if (!TUNNEL && url.searchParams.get('k') !== TOKEN) {
       return send(res, 403, 'Missing or wrong token. Use the link printed in your terminal.', 'text/plain');
     }
     let page = readFileSync(HTML, 'utf8');
     /* replaceAll, not replace: the mode appears twice, once as a class and once
      * as the label, and replacing only the first left "__MODE__" on screen. */
-    page = page.replaceAll('__TOKEN__', TOKEN)
+    page = page.replaceAll('__ROLE__', who.role)
+               .replaceAll('__WHO__', who.email)
+               .replaceAll('__TOKEN__', TUNNEL ? '' : TOKEN)
                .replaceAll('__MODECLASS__', LOCAL ? 'local' : 'production')
                .replaceAll('__MODE__', LOCAL ? 'local database' : 'production');
     return send(res, 200, page, 'text/html');
@@ -624,7 +684,9 @@ createServer(async (req, res) => {
   /* Serving a document is not a JSON route: it streams bytes with a real
    * content type so the browser can preview a PDF or a photo in place. */
   if (url.pathname === '/file') {
-    if (token !== TOKEN) return send(res, 403, 'bad token', 'text/plain');
+    const who = identify(req);
+    if (!who || who.role !== 'owner') return send(res, 403, 'not authorised', 'text/plain');
+    if (!TUNNEL && token !== TOKEN) return send(res, 403, 'bad token', 'text/plain');
     try {
       const dir = folderFor(url.searchParams.get('reference') || '');
       /* basename strips any directory part, so ../../etc/passwd becomes passwd
@@ -657,11 +719,22 @@ createServer(async (req, res) => {
 
   if (!url.pathname.startsWith('/api/')) return send(res, 404, { error: 'not found' });
 
-  if (token !== TOKEN) return send(res, 403, { error: 'bad token' });
+  /* Behind a tunnel the identity header is the credential, and there is no boot
+   * token to send: the browser is talking to Cloudflare, not to this process. */
+  if (!TUNNEL && token !== TOKEN) return send(res, 403, { error: 'bad token' });
 
   const name = url.pathname.slice(5);
   const handler = routes[name];
   if (!handler) return send(res, 404, { error: 'no such route' });
+
+  const who = identify(req);
+  if (!who) return send(res, 403, { error: 'not authorised for this panel' });
+  if (who.role !== 'owner' && OWNER_ONLY.has(name)) {
+    return send(res, 403, { error: 'Your account cannot do that' });
+  }
+  /* Anything that changes data or sends mail is logged with the person's email,
+   * so the terminal is a usable record of who did what. */
+  if (req.method === 'POST') console.log(`[audit] ${who.email} -> ${name}`);
 
   let params = Object.fromEntries(url.searchParams);
   if (req.method === 'POST') {
