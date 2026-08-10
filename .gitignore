@@ -27,6 +27,8 @@ backup/
 backups/
 exports/
 applications*.json
+scripts/admin.mjs
+scripts/admin-ui.html
 
 # Editor and OS noise
 .DS_Store
