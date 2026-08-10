@@ -1,0 +1,26 @@
+# Copy to .dev.vars and fill in. .dev.vars is gitignored and never leaves your
+# machine; production secrets are set on the Cloudflare Pages project instead.
+#
+# Use SANDBOX keys here, never sk_live_. A live key means local testing hits
+# real Stripe: the 4242 test card is declined, and your own card is charged.
+
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...              # printed by `stripe listen`, NOT the dashboard value
+STRIPE_CONFIRMATION_PRICE_ID=price_...       # the EUR 1.00 sandbox price
+SITE_URL=http://localhost:8788
+
+# Notifications. Without one of these, paid applications still land safely in
+# D1, but nothing tells you they arrived. Check with `npm run check:telegram`.
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+
+# Applicant confirmation email. Without RESEND_API_KEY and NOTIFY_FROM the
+# webhook logs "applicant confirmation SKIPPED" and nobody is emailed. See
+# EMAIL-DNS.md for the DNS records that make sending from this domain work.
+RESEND_API_KEY=
+NOTIFY_FROM=FastKeys <hello@fastkeyshousing.com>
+NOTIFY_EMAIL=hello@fastkeyshousing.com
+
+# Optional bot challenge. Set this AND TURNSTILE_SITE_KEY in public/apply.html,
+# or neither: with the secret set and no token sent, every submission is rejected.
+# TURNSTILE_SECRET_KEY=

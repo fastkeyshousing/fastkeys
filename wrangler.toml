@@ -38,3 +38,8 @@ database_id = "7afc3947-69e8-4f9e-ad69-6b82c6af6186"
 [[r2_buckets]]
 binding = "DOCS"
 bucket_name = "fastkeys-documents"
+# Required, and easy to miss: a bucket created with --jurisdiction eu is not
+# findable by name alone. Without this line the deploy fails with
+# "R2 bucket 'fastkeys-documents' not found", which reads like the bucket does
+# not exist rather than like it is being looked for in the wrong place.
+jurisdiction = "eu"
