@@ -73,6 +73,51 @@ if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
   process.exit(1);
 }
 
+/* Answers "why can I not log in" without guessing. Checks the table exists, the
+ * account exists, and that a password you type actually verifies against the
+ * stored hash, which separates a wrong password from a broken deployment. */
+if (has('--check')) {
+  let rows;
+  try {
+    rows = d1(`SELECT id,email,name,role,disabled,password_hash,salt,iterations,last_login_at
+                 FROM admin_users WHERE email = '${esc(email)}';`);
+  } catch { process.exit(1); }
+
+  console.log(c.b(`\n  Checking ${email} ${c.dim(LOCAL ? '(local)' : '(production)')}\n`));
+  if (!rows.length) {
+    console.log(c.bad('  No account with that email in this database.'));
+    const all = d1(`SELECT email FROM admin_users;`);
+    if (all.length) {
+      console.log(c.dim('  Accounts that do exist here:'));
+      for (const a of all) console.log(c.dim(`    ${a.email}`));
+      console.log(c.dim('\n  If yours is missing, it was probably created against the other'));
+      console.log(c.dim('  database. Without --local the script writes to production.\n'));
+    } else {
+      console.log(c.dim('\n  This database has no accounts at all. Create one:'));
+      console.log(c.dim(`    npm run admin:user -- ${LOCAL ? '--local ' : ''}--email ${email} --role owner\n`));
+    }
+    process.exit(1);
+  }
+
+  const u = rows[0];
+  console.log(`  ${c.ok('found')}     ${u.email}  (${u.role})`);
+  console.log(`  ${u.disabled ? c.bad('DISABLED') : c.ok('enabled')}`);
+  console.log(c.dim(`  last login  ${u.last_login_at || 'never'}`));
+  console.log(c.dim(`  iterations  ${u.iterations}`));
+
+  const rl2 = createInterface({ input: process.stdin, output: process.stdout });
+  const pw = await new Promise((r) => rl2.question('\n  Password to verify (blank to skip): ', r));
+  rl2.close();
+  if (pw) {
+    const check = pbkdf2Sync(pw, Buffer.from(u.salt, 'hex'), u.iterations, 32, 'sha256').toString('hex');
+    console.log(check === u.password_hash
+      ? c.ok('\n  That password is correct. If the panel still refuses it, the problem')
+        + c.ok('\n  is the deployment, not the account. Check npm run tail.\n')
+      : c.bad('\n  That password does not match the stored hash.\n'));
+  } else { console.log(); }
+  process.exit(0);
+}
+
 if (has('--delete')) {
   const rows = d1(`SELECT id, role FROM admin_users WHERE email = '${esc(email)}';`);
   if (!rows.length) { console.error(c.bad(`\n  No account for ${email}.\n`)); process.exit(1); }

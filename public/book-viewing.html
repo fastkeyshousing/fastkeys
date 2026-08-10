@@ -601,6 +601,9 @@ button{font:inherit; color:inherit}
 .bv-pick .d{font-size:14px; line-height:1.55; color:rgba(237,239,242,.7); margin-top:8px}
 .bv-form{max-width:640px; margin-top:34px}
 .bv-form .field{margin-bottom:18px}
+/* .field sets no display, but stating this makes [hidden] immune to any later
+   rule that does. */
+.bv-form .field[hidden]{display:none}
 .bv-form label{display:block; font-size:12px; font-weight:600; letter-spacing:.09em;
   text-transform:uppercase; color:rgba(237,239,242,.6); margin-bottom:7px}
 .bv-form{min-width:0}
@@ -639,7 +642,10 @@ button{font:inherit; color:inherit}
   padding:7px 14px; font-size:13.2px; color:rgba(237,239,242,.8); cursor:pointer;
   transition:background .15s, border-color .15s}
 .bv-chip:hover{background:rgba(224,163,94,.14); border-color:rgba(224,163,94,.45); color:#fff}
-.bv-chip.used{opacity:.4; pointer-events:none}
+/* Still clickable when used: the second tap is how you take it back out. The
+   tick and the muted fill say "already added", not "disabled". */
+.bv-chip.used{background:rgba(224,163,94,.2); border-color:rgba(224,163,94,.55); color:#fff}
+.bv-chip.used::before{content:'\2713'; margin-right:6px; color:var(--key); font-weight:700}
 .bv-total{display:flex; align-items:baseline; justify-content:space-between; padding:18px 0;
   border-top:1px solid rgba(255,255,255,.1); margin-top:8px}
 .bv-total b{font-family:var(--display); font-size:30px; font-weight:500; color:#fff}
@@ -786,6 +792,16 @@ button{font:inherit; color:inherit}
         <div class="bv-err" id="e_attendance"><span></span></div>
       </div>
 
+      <!-- Only shown for a live call. On a recorded viewing we attend whenever the
+           landlord offers a slot, so their availability would not be used. -->
+      <div class="field" id="availWrap" hidden>
+        <label for="availability">When are you free to join the call?</label>
+        <textarea id="availability" placeholder="Weekday evenings after 18:00, or any time Saturday. I am in Belgium, so CET."></textarea>
+        <div class="bv-err" id="e_availability"><span></span></div>
+        <p class="bv-hint">Landlords often give very little notice, so the wider you can be
+          here, the more slots we can take.</p>
+      </div>
+
       <div class="two">
         <div class="field">
           <label for="name">Full name</label>
@@ -813,17 +829,10 @@ button{font:inherit; color:inherit}
       </div>
 
       <div class="field">
-        <label for="availability">When are you free to join the call?</label>
-        <textarea id="availability" placeholder="Weekday evenings after 18:00, or any time Saturday. I am in Belgium, so CET." required></textarea>
-        <div class="bv-err" id="e_availability"><span></span></div>
-      </div>
-
-      <div class="field">
-        <label for="questions">What should we ask or check?</label>
+        <label for="questions">What should we ask or check? <span style="text-transform:none;letter-spacing:0;font-weight:400;color:rgba(237,239,242,.42)">(optional)</span></label>
         <textarea id="questions" required placeholder="Type your own, or tap the suggestions below."></textarea>
-        <div class="bv-err" id="e_questions"><span></span></div>
-        <p class="bv-hint">This is the difference between a viewing and a useful viewing.
-          Tap any of these to add them:</p>
+        <p class="bv-hint">We check the usual things anyway. Tap any of these to add them,
+          and tap again to remove:</p>
         <div class="bv-chips" id="qChips">
           <button type="button" class="bv-chip" data-q="Can I register at this address (inschrijven bij de gemeente)?">Registration at the address</button>
           <button type="button" class="bv-chip" data-q="Does this rent qualify for huurtoeslag?">Huurtoeslag eligible</button>
@@ -877,6 +886,11 @@ button{font:inherit; color:inherit}
 
   var PRICES = { online: '\u20AC50', express: '\u20AC100' };
 
+  function attendance(){
+    var picked = form.querySelector('input[name="attendance"]:checked');
+    return picked ? picked.value : null;
+  }
+
   function service(){
     var picked = form.querySelector('input[name="service"]:checked');
     return picked ? picked.value : 'online';
@@ -907,8 +921,7 @@ button{font:inherit; color:inherit}
      msg:'That link does not look right. Leave it blank if there is no listing page.'},
     {id:'attendance', ok:function(){ return !!form.querySelector('input[name="attendance"]:checked'); },
      msg:'Please choose whether you want to join live or receive photos and video afterwards.'},
-    {id:'questions', ok:function(){ return val('questions').length >= 10; },
-     msg:'Tell us what to ask or check, even just one thing. Tap a suggestion if it is easier.'},
+
     {id:'name', ok:function(){ return val('name').length >= 2; }, msg:'Please enter your full name.'},
     {id:'email', ok:function(){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val('email')); },
      msg:'That email address does not look right.'},
@@ -917,7 +930,8 @@ button{font:inherit; color:inherit}
     {id:'application_reference', ok:function(){ var v = val('application_reference');
       return !v || /^FK-[A-Za-z0-9]{5}-[A-Za-z0-9]{3}$/.test(v); },
      msg:'That does not look like a FastKeys reference. Leave it blank if you do not have one.'},
-    {id:'availability', ok:function(){ return val('availability').length >= 3; },
+    {id:'availability', ok:function(){
+       return attendance() !== 'live' || val('availability').length >= 3; },
      msg:'Tell us roughly when you are free, so we can pick a slot that works.'},
     {id:'terms', ok:function(){ return on('terms') && (service() !== 'express' || on('express_understood')); },
      msg:'Please tick the box(es) above to continue.'}
@@ -945,26 +959,51 @@ button{font:inherit; color:inherit}
 
   /* Attendance choice */
   function syncAttendance(){
-    var picked = form.querySelector('input[name="attendance"]:checked');
-    var v = picked ? picked.value : null;
+    var v = attendance();
     $('#optLive').classList.toggle('on', v === 'live');
     $('#optRec').classList.toggle('on', v === 'recorded');
+    /* Hidden rather than disabled: a box asking when you are free, on a service
+       where we go without you, is a question with no use for the answer. */
+    $('#availWrap').hidden = v !== 'live';
+    if(v !== 'live') clearErr('availability');
     clearErr('attendance');
   }
   form.querySelectorAll('input[name="attendance"]').forEach(function(r){
     r.addEventListener('change', syncAttendance);
   });
+  /* Called once on load so the availability box starts in the right state rather
+     than relying on the markup and the script agreeing. */
+  syncAttendance();
 
   /* Suggestion chips append to whatever they have already written rather than
      replacing it, so tapping three does not throw away the first two. */
+  /* Tapping a chip adds its line; tapping again removes exactly that line and
+     leaves anything typed by hand alone. Line-based rather than string-replace so
+     a question that happens to contain another question's text cannot damage it. */
   document.querySelectorAll('.bv-chip').forEach(function(chip){
     chip.addEventListener('click', function(){
       var box = $('#questions');
-      var current = box.value.trim();
-      box.value = current ? current + '\n' + chip.dataset.q : chip.dataset.q;
-      chip.classList.add('used');
-      clearErr('questions');
+      var lines = box.value.split('\n').filter(function(l){ return l.trim() !== ''; });
+      var q = chip.dataset.q;
+      var at = lines.indexOf(q);
+      if(at === -1){
+        lines.push(q);
+        chip.classList.add('used');
+      } else {
+        lines.splice(at, 1);
+        chip.classList.remove('used');
+      }
+      box.value = lines.join('\n');
       box.dispatchEvent(new Event('input'));
+    });
+  });
+
+  /* Typing over a chip's line should release that chip, otherwise it stays lit
+     for something no longer in the box. */
+  $('#questions').addEventListener('input', function(){
+    var lines = $('#questions').value.split('\n');
+    document.querySelectorAll('.bv-chip').forEach(function(chip){
+      chip.classList.toggle('used', lines.indexOf(chip.dataset.q) !== -1);
     });
   });
 

@@ -56,10 +56,24 @@ export async function onRequestPost({ request, env, params }) {
     return fail(429, 'too_many_attempts', `${ip} / ${email}`);
   }
 
-  const user = await env.DB.prepare(
-    `SELECT id, email, name, role, password_hash, salt, iterations, disabled, must_change
-       FROM admin_users WHERE email = ?1`
-  ).bind(email).first();
+  /* Wrapped, because the failure this catches is not "wrong password" and must
+   * not be reported as one. An unapplied migration used to surface as a 500 with
+   * a raw stack trace, which the page then rendered as a credentials error and
+   * sent people hunting for a typo that was never there. */
+  let user;
+  try {
+    user = await env.DB.prepare(
+      `SELECT id, email, name, role, password_hash, salt, iterations, disabled, must_change
+         FROM admin_users WHERE email = ?1`
+    ).bind(email).first();
+  } catch (err) {
+    const detail = String(err);
+    console.error('[admin] login could not query admin_users:', detail);
+    if (/no such table/i.test(detail)) {
+      return fail(503, 'setup_incomplete', 'admin_users does not exist: run npm run db:migrate');
+    }
+    return fail(503, 'service_unavailable', detail);
+  }
 
   /* Always derive a hash, even with no such account. Returning early here is the
    * classic way an login endpoint tells an attacker which addresses are real. */

@@ -789,14 +789,27 @@ button{font:inherit; color:inherit}
       credentials:'same-origin',
       body: JSON.stringify({email: $('#pnEmail').value.trim(), password: $('#pnPass').value})
     }).then(function(r){
-      return r.json().catch(function(){ return {}; }).then(function(b){ return {ok:r.ok, b:b}; });
+      return r.json().catch(function(){ return {}; }).then(function(b){ return {ok:r.ok, b:b, status:r.status}; });
     }).then(function(r){
       btn.disabled = false; btn.textContent = 'Sign in';
       if(r.ok && r.b.user){ $('#pnPass').value = ''; showPanel(r.b.user); return; }
       msg.className = 'pn-msg show err';
-      msg.textContent = r.b.error === 'too_many_attempts'
-        ? 'Too many attempts. Wait fifteen minutes and try again.'
-        : 'That email and password do not match an account.';
+      /* Distinguishing these matters: three of them are not the user's fault and
+         telling them their password is wrong sends them looking in the wrong
+         place. Only invalid_credentials is deliberately vague, and that is the
+         one where vagueness is the point. */
+      var reasons = {
+        too_many_attempts: 'Too many attempts. Wait fifteen minutes and try again.',
+        setup_incomplete: 'The panel is not finished being set up: the accounts table is missing. Run npm run db:migrate.',
+        service_unavailable: 'The panel cannot reach its database right now. This is not your password.',
+        not_configured: 'The panel is not configured on this deployment. Check the D1 binding.',
+        bad_origin: 'Your browser blocked the request. Reload the page and try again.',
+        missing_fields: 'Please fill in both fields.'
+      };
+      msg.textContent = reasons[r.b.error]
+        || (r.status === 404
+              ? 'The login endpoint is not deployed yet. Push the latest code first.'
+              : 'That email and password do not match an account.');
     }).catch(function(){
       btn.disabled = false; btn.textContent = 'Sign in';
       msg.className = 'pn-msg show err';
@@ -895,7 +908,7 @@ button{font:inherit; color:inherit}
       headers:{'Content-Type': file.type || 'application/octet-stream'},
       body: file
     }).then(function(r){
-      return r.json().catch(function(){ return {}; }).then(function(b){ return {ok:r.ok, b:b}; });
+      return r.json().catch(function(){ return {}; }).then(function(b){ return {ok:r.ok, b:b, status:r.status}; });
     }).then(function(r){
       btn.disabled = false; btn.textContent = 'Upload';
       if(r.ok){ $('#pnDocFile').value = ''; loadDocs(selected); return; }
