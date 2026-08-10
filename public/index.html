@@ -117,13 +117,18 @@ button{font:inherit; color:inherit}
 .brand:hover .mark{transform:translateY(-3px) rotate(-3deg)}
 .brand span{font-family:var(--serif); font-weight:400; font-size:20px;
   letter-spacing:.32em; color:var(--key); padding-left:.32em}
-.nav-links{display:flex; align-items:center; gap:28px}
+.nav-links{display:flex; align-items:center; gap:26px; flex:0 1 auto; min-width:0}
+/* nowrap is the important one: without it the flex items shrink and each label
+   breaks across two lines ("How it / works"), which is what made the bar look
+   squashed once a seventh link was added. Now the row stays one line high and
+   simply collapses to the menu button sooner. */
 .nav-links a{text-decoration:none; font-size:15px; color:rgba(237,239,242,.8);
-  position:relative; padding-block:4px; transition:color .2s}
+  position:relative; padding-block:4px; transition:color .2s; white-space:nowrap}
 .nav-links a::after{content:""; position:absolute; left:0; bottom:0; height:1px; width:100%;
   background:var(--key); transform:scaleX(0); transform-origin:right; transition:transform .3s var(--ease)}
 .nav-links a:hover{color:var(--chalk)}
 .nav-links a:hover::after{transform:scaleX(1); transform-origin:left}
+.nav-right a.btn{white-space:nowrap; flex:none}
 .nav-right{display:flex; align-items:center; gap:16px}
 .nav .btn{padding:11px 20px; font-size:14.5px}
 
@@ -142,7 +147,7 @@ button{font:inherit; color:inherit}
 .burger[aria-expanded="true"] i:nth-child(3){transform:translateY(-6px) rotate(-45deg)}
 .nav-links .mob-cta{display:none}
 
-@media (max-width:980px){
+@media (max-width:1180px){
   .nav-links{
     position:absolute; top:100%; left:0; right:0; flex-direction:column; align-items:stretch;
     gap:0; background:var(--ink); border-bottom:1px solid var(--line-dark);
@@ -444,7 +449,7 @@ button{font:inherit; color:inherit}
 [data-rev].seen{opacity:1; transform:none}
 
 /* ---------- responsive ---------- */
-@media (max-width:980px){
+@media (max-width:1180px){
   .hero-grid{grid-template-columns:1fr}
   .stage{min-height:430px; margin-top:8px}
   .reality-say{grid-template-columns:1fr; align-items:start}
@@ -597,7 +602,7 @@ button{font:inherit; color:inherit}
 .legal-body td{color:#4A5666}
 .legal-meta{font-size:14px; color:#6C7684; padding-top:26px; margin-top:40px; border-top:1px solid var(--line-light)}
 
-@media (max-width:980px){
+@media (max-width:1180px){
   .apply-grid{grid-template-columns:1fr}
   .rail{position:static; order:-1}
   .preview pre{max-height:340px}
@@ -622,11 +627,8 @@ button{font:inherit; color:inherit}
       <a href="#deal">The deal</a>
       <a href="#what">What we do</a>
       <a href="#how">How it works</a>
-      <a href="#cities">Cities</a>
       <a href="/viewings">Viewings</a>
-      <a href="#students">Students</a>
       <a href="#questions">Questions</a>
-      <a href="/apply">Apply</a>
       <a href="#contact" class="mob-cta">Get in touch</a>
     </nav>
     <div class="nav-right">
@@ -1077,13 +1079,13 @@ button{font:inherit; color:inherit}
       <div class="foot-nav">
         <div class="foot-col">
           <h5>Site</h5>
+          <a href="#deal">The deal</a>
           <a href="#what">What we do</a>
           <a href="#how">How it works</a>
           <a href="#cities">Cities</a>
-      <a href="/viewings">Viewings</a>
+          <a href="/viewings">Viewings</a>
           <a href="#students">Students</a>
           <a href="#questions">Questions</a>
-          <a href="/viewings">Viewings</a>
           <a href="/apply">Apply</a>
         </div>
         <div class="foot-col">

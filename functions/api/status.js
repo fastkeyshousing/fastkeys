@@ -9,7 +9,8 @@
  * so a slow webhook shows the applicant a confirmation rather than a dead end. */
 
 import { json, fail, clientIp, sha256Hex, rateLimit, methodNotAllowed } from '../../lib/http.js';
-import { retrieveCheckoutSession } from '../../lib/stripe.js';
+import { retrieveCheckoutSession, retrievePaymentIntent } from '../../lib/stripe.js';
+import { explainDecline } from '../../lib/decline.js';
 import { notifyPaid } from '../../lib/notify.js';
 
 const SESSION_RE = /^cs_[A-Za-z0-9_]{10,120}$/;
@@ -68,7 +69,27 @@ export async function onRequestGet({ request, env, waitUntil }) {
     return json(publicView(row, 'pending'), 200);
   }
 
-  if (session.payment_status !== 'paid') return json(publicView(row, 'pending'), 200);
+  if (session.payment_status !== 'paid') {
+    /* Unpaid covers both "never attempted" and "attempted and refused". Only the
+     * second needs explaining, and the reason lives on the PaymentIntent rather
+     * than on the session. */
+    let failure = null;
+    if (typeof session.payment_intent === 'string') {
+      try {
+        const pi = await retrievePaymentIntent(env, session.payment_intent);
+        const err = pi?.last_payment_error;
+        if (err) {
+          failure = explainDecline({
+            declineCode: err.decline_code || err.code,
+            failureType: err.code === 'card_declined' && !err.decline_code ? 'blocked' : undefined,
+          });
+        }
+      } catch (e) {
+        console.error('[status] could not read decline reason:', e);
+      }
+    }
+    return json({ ...publicView(row, failure ? 'declined' : 'pending'), failure }, 200);
+  }
 
   /* Same guarded update the webhook uses, so whichever path gets there first
    * wins and the other becomes a no-op. */

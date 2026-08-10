@@ -7,6 +7,7 @@
 /terms.html    /terms    301
 /viewings.html /viewings 301
 /bezichtigingen.html /bezichtigingen 301
+/payment-failed.html /payment-failed 301
 
 # Anything shared while the site lived under the old GitHub Pages path.
 /fastkeys/*  /:splat  301
