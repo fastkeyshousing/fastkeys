@@ -93,6 +93,27 @@ pre{background:rgba(0,0,0,.22); border:1px solid var(--line); border-radius:11px
 .hint{font-size:12.7px; color:var(--dim); margin-top:8px; line-height:1.55}
 iframe{width:100%; height:520px; border:1px solid var(--line); border-radius:11px; background:#fff; margin-top:11px}
 .spin{color:var(--dim); padding:26px 22px}
+
+/* editing */
+.edit{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px}
+@media (max-width:1200px){ .edit{grid-template-columns:1fr} }
+.edit label{display:block; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--dim); margin-bottom:4px}
+.edit input,.edit select,.edit textarea{width:100%; background:rgba(0,0,0,.2);
+  border:1px solid var(--line); border-radius:9px; padding:8px 11px; outline:none}
+.edit input:focus,.edit select:focus,.edit textarea:focus{border-color:rgba(224,163,94,.5)}
+.edit textarea{min-height:62px; resize:vertical; font:inherit}
+.edit .wide{grid-column:1/-1}
+.danger{margin-top:14px; border:1px solid rgba(240,169,169,.3); border-radius:12px; padding:16px 18px;
+  background:rgba(240,169,169,.05)}
+.danger h4{font-size:13.5px; color:var(--bad); margin-bottom:6px}
+.btn.red{background:rgba(240,169,169,.16); color:var(--bad); border:1px solid rgba(240,169,169,.4)}
+.btn.red:hover{background:rgba(240,169,169,.26)}
+.modal{position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; place-items:center; z-index:50}
+.modal.open{display:grid}
+.modal .box{background:var(--deep); border:1px solid var(--line); border-radius:16px;
+  padding:24px 26px; width:min(620px,92vw); max-height:88vh; overflow:auto}
+.modal h3{font-size:17px; margin-bottom:14px}
 </style>
 </head>
 <body>
@@ -114,7 +135,10 @@ iframe{width:100%; height:520px; border:1px solid var(--line); border-radius:11p
   </select>
   <button class="btn ghost" id="refresh">Refresh</button>
   <button class="btn" id="reconcile" title="Ask Stripe about every pending row and settle the ones that actually paid">Reconcile with Stripe</button>
+  <button class="btn ghost" id="newapp" title="Add an application entered by hand">+ New</button>
 </div>
+
+<div class="modal" id="modal"><div class="box" id="modalbox"></div></div>
 
 <main>
   <div class="list" id="list"><div class="spin">Loading&hellip;</div></div>
@@ -143,6 +167,30 @@ const money = (c, cur) => c == null ? '—' : '€' + (c/100).toFixed(2) + ' ' +
 const when = s => { if(!s) return '—'; const d=new Date(s); return isNaN(d)?s:d.toLocaleString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); };
 
 let selected = null;
+
+/* Mirrors EDITABLE in admin.mjs. Anything not listed here cannot be changed by
+   hand, which is deliberate for the Stripe-owned fields. */
+const FIELDS = [
+  {k:'name', label:'Full name'},
+  {k:'email', label:'Email', type:'email'},
+  {k:'phone', label:'Phone'},
+  {k:'city', label:'City'},
+  {k:'employment', label:'Situation', type:'select',
+   options:['','permanent','fixed','self','student','intern']},
+  {k:'role', label:'Job title or study'},
+  {k:'organisation', label:'Employer or university'},
+  {k:'income', label:'Monthly income'},
+  {k:'budget', label:'Monthly budget'},
+  {k:'savings', label:'Savings'},
+  {k:'guarantor_income', label:'Guarantor income'},
+  {k:'months_in_advance', label:'Rent in advance', type:'select', options:['0','1','2','3','6']},
+  {k:'household', label:'Household', type:'select', options:['single','partner']},
+  {k:'available_from', label:'Available from', type:'date'},
+  {k:'duration', label:'Duration', type:'select',
+   options:['6 to 12 months','12+ months','24+ months','an indefinite period']},
+  {k:'hobbies', label:'Hobbies', type:'textarea', wide:true},
+  {k:'notes', label:'Notes', type:'textarea', wide:true},
+];
 
 async function load() {
   $('#list').innerHTML = '<div class="spin">Loading…</div>';
@@ -253,8 +301,49 @@ async function open(ref) {
       </div>
 
       <div class="sec">
+        <h3>Edit the details we hold</h3>
+        <p class="hint" style="margin-top:0">
+          These feed every email and the landlord letter. Payment fields are not editable here:
+          they record what actually happened with money, and typing over them would put the
+          database at odds with Stripe. Use <b>Reconcile</b> for those.
+        </p>
+        <div class="edit" id="editform">
+          ${FIELDS.map(f => `<div${f.wide ? ' class="wide"' : ''}>
+            <label for="f_${f.k}">${esc(f.label)}</label>
+            ${f.type === 'select'
+              ? `<select id="f_${f.k}">${f.options.map(o =>
+                  `<option value="${esc(o)}"${(a[f.k]||'') === o ? ' selected' : ''}>${esc(o || '—')}</option>`).join('')}</select>`
+              : f.type === 'textarea'
+                ? `<textarea id="f_${f.k}">${esc(a[f.k] ?? '')}</textarea>`
+                : `<input id="f_${f.k}" type="${f.type||'text'}" value="${esc(a[f.k] ?? '')}">`}
+          </div>`).join('')}
+          <div>
+            <label for="f_status">Status</label>
+            <select id="f_status">${['pending','paid','expired','failed'].map(s =>
+              `<option value="${s}"${row.status===s?' selected':''}>${s}</option>`).join('')}</select>
+          </div>
+        </div>
+        <div class="actions"><button class="btn" id="savefields">Save changes</button></div>
+        <div class="note" id="editnote"></div>
+      </div>
+
+      <div class="sec">
         <h3>Landlord letter</h3>
         <pre>${esc(row.letter || '')}</pre>
+      </div>
+
+      <div class="sec">
+        <div class="danger">
+          <h4>Delete this application</h4>
+          <p class="hint" style="margin-top:0">
+            Permanent, and the right thing to do when someone asks to be erased. The payment
+            record stays in Stripe, which is where your accounting obligations live.
+          </p>
+          <div class="inline">
+            <input id="delconfirm" placeholder="Type ${esc(row.reference)} to confirm">
+            <button class="btn red" id="delbtn">Delete</button>
+          </div>
+        </div>
       </div>`;
 
     $('#copyref').onclick = async () => {
@@ -308,6 +397,39 @@ async function open(ref) {
     sender('remind', 'remind', 'Reminder');
     if ($('#preview')) $('#preview').onclick = () => showPreview('confirmation');
     if ($('#previewRem')) $('#previewRem').onclick = () => showPreview('reminder');
+
+    const enote = (msg, ok) => {
+      const n = $('#editnote');
+      n.textContent = msg; n.className = 'note show ' + (ok ? 'ok' : 'err');
+    };
+
+    $('#savefields').onclick = async () => {
+      const fields = {};
+      for (const f of FIELDS) {
+        const el = $('#f_' + f.k);
+        if (el) fields[f.k] = el.value.trim();
+      }
+      const btn = $('#savefields');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        const r = await api('update', { reference: ref, fields, status: $('#f_status').value }, 'POST');
+        enote('Saved: ' + (r.changed.length ? r.changed.join(', ') : 'nothing had changed'), true);
+        load();
+      } catch (e) { enote(e.message, false); }
+      btn.disabled = false; btn.textContent = 'Save changes';
+    };
+
+    $('#delbtn').onclick = async () => {
+      const typed = $('#delconfirm').value.trim();
+      if (typed !== ref) return enote('Type the reference exactly to confirm.', false);
+      if (!confirm('Delete ' + ref + ' permanently? This cannot be undone.')) return;
+      try {
+        await api('remove', { reference: ref, confirm: typed }, 'POST');
+        selected = null;
+        $('#pane').innerHTML = '<div class="empty"><div>Deleted.</div></div>';
+        load();
+      } catch (e) { enote(e.message, false); }
+    };
   } catch (e) {
     $('#pane').innerHTML = `<div class="spin" style="color:var(--bad)">${esc(e.message)}</div>`;
   }
@@ -317,6 +439,42 @@ let t;
 $('#q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 450); });
 $('#status').addEventListener('change', load);
 $('#refresh').addEventListener('click', load);
+
+$('#newapp').addEventListener('click', () => {
+  $('#modalbox').innerHTML = `<h3>New application</h3>
+    <p class="hint" style="margin-top:0">For someone who paid by transfer, signed up over the
+    phone, or predates this system. A reference is generated automatically.</p>
+    <div class="edit" id="newform">
+      ${FIELDS.map(f => `<div${f.wide ? ' class="wide"' : ''}>
+        <label for="n_${f.k}">${f.label}</label>
+        ${f.type === 'select'
+          ? `<select id="n_${f.k}">${f.options.map(o => `<option value="${o}">${o || '—'}</option>`).join('')}</select>`
+          : f.type === 'textarea'
+            ? `<textarea id="n_${f.k}"></textarea>`
+            : `<input id="n_${f.k}" type="${f.type||'text'}">`}
+      </div>`).join('')}
+      <div><label for="n_status">Status</label>
+        <select id="n_status"><option value="pending">pending</option><option value="paid">paid</option></select></div>
+    </div>
+    <div class="actions"><button class="btn" id="createbtn">Create</button>
+      <button class="btn ghost" id="cancelbtn">Cancel</button></div>
+    <div class="note" id="newnote"></div>`;
+  $('#modal').classList.add('open');
+  $('#cancelbtn').onclick = () => $('#modal').classList.remove('open');
+  $('#createbtn').onclick = async () => {
+    const body = { status: $('#n_status').value };
+    for (const f of FIELDS) { const el = $('#n_' + f.k); if (el && el.value.trim()) body[f.k] = el.value.trim(); }
+    try {
+      const r = await api('create', body, 'POST');
+      $('#modal').classList.remove('open');
+      load();
+      setTimeout(() => open(r.reference), 700);
+    } catch (e) {
+      const n = $('#newnote'); n.textContent = e.message; n.className = 'note show err';
+    }
+  };
+});
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal') $('#modal').classList.remove('open'); });
 
 $('#reconcile').addEventListener('click', async () => {
   const b = $('#reconcile');

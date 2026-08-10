@@ -10,6 +10,14 @@
 *.p12
 secrets.json
 
+# Local admin tooling. Reads and writes the production database, so it stays on
+# your machine. It holds no secrets of its own, but there is no reason to publish
+# the schema and the endpoints of the thing that can delete customer records.
+# Keep a copy somewhere backed up: if this laptop dies, so does the tool.
+scripts/admin.mjs
+scripts/admin-ui.html
+scripts/backfill-emails.mjs
+
 # Local state and build output
 node_modules/
 .wrangler/
@@ -27,8 +35,6 @@ backup/
 backups/
 exports/
 applications*.json
-scripts/admin.mjs
-scripts/admin-ui.html
 
 # Editor and OS noise
 .DS_Store

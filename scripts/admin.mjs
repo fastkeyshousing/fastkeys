@@ -23,7 +23,7 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { applicantEmail } from '../lib/applicant-email.js';
 import { reminderEmail } from '../lib/reminder-email.js';
@@ -87,6 +87,26 @@ async function d1(sql) {
 }
 
 const REF_RE = /^FK-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
+const STATUSES = ['pending', 'paid', 'expired', 'failed'];
+
+/* Same alphabet and shape the live form uses, so a record created here is
+ * indistinguishable from one that came through checkout. */
+function makeReference() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = randomBytes(8);
+  const chars = [...bytes].map((b) => alphabet[b % alphabet.length]);
+  return `FK-${chars.slice(0, 5).join('')}-${chars.slice(5, 8).join('')}`;
+}
+
+/* Fields of the stored application that may be edited by hand. Deliberately
+ * excludes anything Stripe owns: amounts, session ids, customer ids and paid_at
+ * are records of what actually happened with money, and letting them be typed
+ * over would make the database disagree with the payment processor. */
+const EDITABLE = [
+  'name', 'email', 'phone', 'city', 'employment', 'role', 'organisation',
+  'income', 'budget', 'savings', 'guarantor_income', 'months_in_advance',
+  'household', 'available_from', 'duration', 'hobbies', 'notes',
+];
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
 
 /* ---------------------------------------------------------------- routes --- */
@@ -322,6 +342,94 @@ const routes = {
     });
     if (!res.ok) throw new Error(`Resend: HTTP ${res.status} ${await res.text()}`);
     return { ok: true, sentTo: application.email };
+  },
+
+  /* A record entered by hand: someone who paid by transfer, signed up over the
+   * phone, or was migrated from before this system existed. */
+  async create(params) {
+    const name = String(params.name || '').trim();
+    const email = String(params.email || '').trim();
+    if (name.length < 2) throw new Error('A name is required');
+    if (!EMAIL_RE.test(email)) throw new Error('A valid email is required');
+    const status = STATUSES.includes(params.status) ? params.status : 'pending';
+
+    const application = { name, email };
+    for (const f of EDITABLE) {
+      if (params[f] !== undefined && params[f] !== '') application[f] = params[f];
+    }
+    application.name = name;
+    application.email = email;
+
+    const reference = makeReference();
+    const now = new Date().toISOString();
+    await d1(
+      `INSERT INTO applications
+         (id, reference, status, name, email, payload, letter, created_at, paid_at)
+       VALUES ('${esc(randomUUID())}', '${esc(reference)}', '${esc(status)}',
+               '${esc(name)}', '${esc(email)}', '${esc(JSON.stringify(application))}',
+               '${esc(params.letter || '')}', '${now}',
+               ${status === 'paid' ? `'${now}'` : 'NULL'});`
+    );
+    return { ok: true, reference };
+  },
+
+  /* Corrects the details we hold. The stored payload is what every email and the
+   * landlord letter read from, so the payload and the two mirrored columns have
+   * to move together or a resend would use stale values. */
+  async update({ reference, fields, status }) {
+    if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
+    const rows = await d1(`SELECT payload, status FROM applications WHERE reference='${esc(reference)}';`);
+    if (!rows.length) throw new Error('No application with that reference');
+
+    let payload;
+    try {
+      payload = JSON.parse(rows[0].payload);
+    } catch {
+      throw new Error('The stored application could not be read');
+    }
+
+    const changed = [];
+    for (const [k, v] of Object.entries(fields || {})) {
+      if (!EDITABLE.includes(k)) continue;
+      if (k === 'email' && v && !EMAIL_RE.test(v)) throw new Error('That does not look like an email address');
+      /* The form posts every field on every save, so compare before recording a
+       * change. Otherwise the confirmation claims seventeen edits when one box
+       * was touched, and stops meaning anything. */
+      const before = payload[k];
+      const same = String(before ?? '') === String(v ?? '');
+      payload[k] = v;
+      if (!same) changed.push(k);
+    }
+
+    const sets = [`payload = '${esc(JSON.stringify(payload))}'`];
+    /* name and email exist as columns as well, for searching and sending. */
+    if (payload.name) sets.push(`name = '${esc(payload.name)}'`);
+    if (payload.email) sets.push(`email = '${esc(payload.email)}'`);
+
+    if (status && status !== rows[0].status) {
+      if (!STATUSES.includes(status)) throw new Error('Not a valid status');
+      sets.push(`status = '${esc(status)}'`);
+      /* Marking something paid by hand still needs a paid_at, or it sorts and
+       * reports as though the money never arrived. */
+      if (status === 'paid') sets.push(`paid_at = COALESCE(paid_at, '${new Date().toISOString()}')`);
+      changed.push('status');
+    }
+
+    await d1(`UPDATE applications SET ${sets.join(', ')} WHERE reference = '${esc(reference)}';`);
+    return { ok: true, changed };
+  },
+
+  /* Hard delete. There is no soft-delete flag on purpose: when someone asks for
+   * their data to be erased, a row still sitting there with a hidden flag is not
+   * erasure. The confirmation is enforced in the interface, which requires the
+   * reference to be typed out. */
+  async remove({ reference, confirm }) {
+    if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
+    if (confirm !== reference) throw new Error('Type the reference exactly to confirm deletion');
+    const rows = await d1(`SELECT reference FROM applications WHERE reference='${esc(reference)}';`);
+    if (!rows.length) throw new Error('No application with that reference');
+    await d1(`DELETE FROM applications WHERE reference = '${esc(reference)}';`);
+    return { ok: true, deleted: reference };
   },
 
   /* The rendered email, so it can be checked before sending. */
