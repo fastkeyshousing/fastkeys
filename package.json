@@ -13,7 +13,8 @@
     "backfill:prod": "node scripts/backfill-emails.mjs",
     "admin": "node scripts/admin.mjs",
     "admin:local": "node scripts/admin.mjs --local",
-    "admin:user": "node scripts/admin-user.mjs"
+    "admin:user": "node scripts/admin-user.mjs",
+    "blog": "node scripts/build-blog.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

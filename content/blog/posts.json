@@ -1,0 +1,219 @@
+{
+  "posts": [
+    {
+      "slug": "how-to-register-bsn-maastricht",
+      "title": "How to register in Maastricht and get your BSN",
+      "description": "What the gemeente needs, how long it takes, and the two things that catch international students out. A step-by-step for Maastricht.",
+      "date": "2026-08-11",
+      "keywords": ["BSN Maastricht", "register gemeente Maastricht", "international student Maastricht"],
+      "readMins": 6,
+      "body": [
+        ["p", "Your BSN, the burgerservicenummer, is the number everything else in the Netherlands hangs off. A bank account, a phone contract, a job, health insurance, huurtoeslag: all of them ask for it. You get one by registering your address with the gemeente, and you cannot get one without an address."],
+        ["p", "That last point is why this article exists on a housing company's website. Registration is the step where housing stops being about comfort and starts being about paperwork."],
+        ["h2", "The order things happen in"],
+        ["ol", [
+          "Sign a tenancy for a property where the landlord permits registration.",
+          "Book an appointment with Gemeente Maastricht. Do this the week you know your address, not the week you arrive.",
+          "Attend in person with your documents. Nobody can do it for you.",
+          "Your BSN arrives by post, usually within a couple of weeks."
+        ]],
+        ["h2", "What to bring"],
+        ["ul", [
+          "A valid passport or EU identity card. Not a photocopy.",
+          "Your rental contract, showing the address and your name.",
+          "Proof of enrolment from your university.",
+          "A birth certificate, and this is the one that catches people out."
+        ]],
+        ["callout", "The birth certificate is the trap. Many countries' certificates must be legalised or carry an apostille, and translated into Dutch, English, French or German by a sworn translator. Arranging that from Maastricht is slow and expensive. Arranging it at home before you fly is neither. Check what your country requires before you pack."],
+        ["h2", "The second trap: not every address allows registration"],
+        ["p", "Some landlords do not permit registration at the address. Sometimes that is because the property is not legally split into separate units, sometimes because the owner would rather the municipality did not know how many people live there. Either way, an address you cannot register at is an address that cannot give you a BSN."],
+        ["p", "Ask before you sign, in writing. \"Can I register at this address with the gemeente?\" is a fair question and a landlord who will not answer it plainly has told you something."],
+        ["h2", "How long you have"],
+        ["p", "If you are staying longer than four months you must register within five days of arriving. In practice the gemeente's appointment calendar decides your timeline, and in August and September it fills quickly. Book early, even if the appointment is weeks out."],
+        ["p", "Staying under four months? You register as a non-resident instead, at an RNI desk, and you get a BSN without a Dutch address. Fewer students need this than think they do, but if your exchange is one semester it may apply to you."],
+        ["h2", "After the BSN arrives"],
+        ["p", "Open a Dutch bank account, arrange Dutch health insurance if you are working here, and apply for any allowances you qualify for. Each of those is a separate queue, so start them as they become possible rather than saving them up."]
+      ]
+    },
+    {
+      "slug": "huurtoeslag-students-2026",
+      "title": "Huurtoeslag in 2026: can a student in Maastricht actually get it?",
+      "description": "The rules changed on 1 January 2026. What that means for students, and the one condition that disqualifies most student rooms.",
+      "date": "2026-08-12",
+      "keywords": ["huurtoeslag student", "housing allowance Netherlands", "huurtoeslag 2026"],
+      "readMins": 7,
+      "body": [
+        ["p", "Huurtoeslag is a monthly contribution towards your rent from the Belastingdienst. The rules changed meaningfully on 1 January 2026, and most articles you will find online still describe the old ones."],
+        ["p", "Here is the current position, and the honest answer to whether it applies to you."],
+        ["h2", "What changed in 2026"],
+        ["ul", [
+          "The hard rent ceiling is gone. Previously a rent above the limit disqualified you outright. Now you can still receive huurtoeslag, calculated on the part of your rent up to €932.93.",
+          "The youth threshold dropped from 23 to 21. From 2026, a 21 or 22 year old is treated as an adult, where before they were capped at the lower youth limit.",
+          "For 18 to 20 year olds the calculation runs to €498.20.",
+          "Service costs no longer count. Only the kale huur, the bare rent without service charges, is used."
+        ]],
+        ["callout", "If you are 21 or 22 and were told you did not qualify in 2025, that advice is out of date. This is the group the change helps most."],
+        ["h2", "The condition that disqualifies most students"],
+        ["p", "You must rent a <strong>zelfstandige woning</strong>: self-contained accommodation with its own lockable front door, its own kitchen and its own toilet."],
+        ["p", "A room in a shared student house, with a kitchen and bathroom shared down the hall, is <strong>onzelfstandig</strong> and does not qualify. This is not a technicality anyone can argue around, and it is why the majority of students in Maastricht cannot claim huurtoeslag no matter what they earn."],
+        ["p", "A studio with your own facilities does qualify, assuming the other conditions are met. When you are comparing a €700 room against an €850 studio, huurtoeslag can close a good part of that gap. It is worth doing the sum before you decide the room is cheaper."],
+        ["h2", "The other conditions"],
+        ["ul", [
+          "You are 18 or older.",
+          "You are registered at the address with the gemeente.",
+          "Your income is not too high. Student finance and a modest side job usually sit well within the range.",
+          "Your assets are below the limit, €38,479 for a single person in 2026."
+        ]],
+        ["h2", "How to check properly"],
+        ["p", "The Belastingdienst has a proefberekening, a trial calculation, at toeslagen.nl. It takes a few minutes, it is free, and it is the only answer that counts. Anything on the internet, including this page, is a summary of rules that change every January."],
+        ["p", "You apply through Mijn toeslagen with your DigiD, which means you need your BSN first, which means you need to be registered, which brings you back to the address question again."],
+        ["h2", "A word of caution"],
+        ["p", "Huurtoeslag is paid as an advance and reconciled later against your actual income. If you earn more than you estimated, you pay some back. Estimate honestly, and tell them when your circumstances change, rather than discovering the difference a year later as a bill."]
+      ]
+    },
+    {
+      "slug": "five-things-first-week-netherlands",
+      "title": "Five things to sort out in your first week in the Netherlands",
+      "description": "The short list that unblocks everything else, in the order that actually works.",
+      "date": "2026-08-13",
+      "keywords": ["moving to Netherlands student", "first week Netherlands", "international student checklist"],
+      "readMins": 5,
+      "body": [
+        ["p", "Almost everything administrative in the Netherlands depends on something else being done first. Do these in this order and the queue moves. Do them out of order and you will spend September waiting."],
+        ["h2", "1. Register at your address"],
+        ["p", "Book the gemeente appointment the moment you have a signed contract. The BSN that follows is the key to the other four items on this list, and the appointment calendar, not you, sets the pace."],
+        ["h2", "2. Get a Dutch bank account"],
+        ["p", "You will need one for rent, for a phone contract, and to be paid by an employer. Some banks let you start the application before your BSN arrives and complete it afterwards. iDEAL, the payment method almost every Dutch website expects, needs a Dutch account."],
+        ["h2", "3. Buy a bike, and a proper lock"],
+        ["p", "Maastricht is small enough to cross by bike in twenty minutes and awkward enough by bus that most students stop bothering. Budget €120 to €250 for a decent second-hand bike from a shop with a receipt."],
+        ["p", "Spend €40 or more on the lock, and buy two. Bike theft is the most common crime a student here will experience. A cheap lock on a good bike is a donation with extra steps."],
+        ["callout", "Never buy a bike from someone selling it on the street or in a park. It is stolen, buying it is an offence, and you are funding the thing that will happen to yours."],
+        ["h2", "4. Sort out health insurance, or confirm you do not need it"],
+        ["p", "If you only study, your EHIC or a private student policy is usually enough. If you take a job, even a few hours a week in a café, you are generally required to take Dutch basic insurance and can be fined for going without. This catches people out around November, months after they started the job."],
+        ["h2", "5. Get a Dutch SIM"],
+        ["p", "Verification codes, delivery notifications, viewing appointments and landlords all assume a Dutch number. A prepaid SIM costs a few euro and removes a surprising amount of friction."],
+        ["h2", "What can wait"],
+        ["p", "Furniture, a gym membership, a second-hand desk, a decent frying pan. None of these block anything else. Spend the first week on the things with queues attached and the second week making the room habitable."]
+      ]
+    },
+    {
+      "slug": "where-to-get-furniture-maastricht",
+      "title": "Where to get furniture in Maastricht without spending a fortune",
+      "description": "Second-hand markets, kringloop shops and the Facebook groups that actually work, plus what is worth buying new.",
+      "date": "2026-08-14",
+      "keywords": ["furniture Maastricht", "kringloop Maastricht", "student furniture Netherlands"],
+      "readMins": 5,
+      "body": [
+        ["p", "Most rooms in Maastricht come furnished or semi-furnished, which usually means a bed, a desk and a wardrobe. Everything that makes a room liveable is on you."],
+        ["h2", "Start with kringloopwinkels"],
+        ["p", "Kringloop shops are Dutch charity second-hand stores and they are the cheapest sensible option. Expect to pay a few euro for kitchenware, €10 to €40 for a chair or small table, and to visit more than once, because stock changes constantly and the good things go the day they arrive."],
+        ["p", "Go on a weekday morning if you can. Saturday is when everybody else goes."],
+        ["h2", "Facebook groups, with a caution"],
+        ["p", "Maastricht has active student marketplace groups, especially in June and July when graduating students empty their rooms, and again in late August. Whole rooms get sold as a bundle for very little, because the alternative is carrying it to the tip."],
+        ["p", "The caution: the same groups are full of housing scams. A person selling you a desk is fine. A person offering you an apartment sight-unseen and asking for a deposit by bank transfer is not."],
+        ["h2", "IKEA, and how to get there without a car"],
+        ["p", "There is no IKEA in Maastricht. The nearest are across the borders in Belgium and Germany, and both are reachable by public transport with some patience. Delivery to a Dutch address is usually the better answer once you add up the day it costs you."],
+        ["h2", "What is worth buying new"],
+        ["ul", [
+          "A mattress, if your room does not include one. Second-hand mattresses are a false economy and occasionally a bedbug problem.",
+          "Pillows and duvets, for the same reason.",
+          "A desk chair, if you will sit in it for a thesis. Your back is cheaper to protect than to repair."
+        ]],
+        ["h2", "What to leave behind"],
+        ["p", "Do not ship furniture from home. Do not buy a sofa in your first month. Rooms here are small, contracts are often twelve months, and the thing you buy in week two is the thing you cannot get rid of in month eleven."]
+      ]
+    },
+    {
+      "slug": "buying-a-bike-maastricht",
+      "title": "Buying a bike in Maastricht: what to pay and how not to lose it",
+      "description": "Where to buy, what a fair price looks like, which lock to get, and what to do if it is stolen anyway.",
+      "date": "2026-08-15",
+      "keywords": ["buy bike Maastricht", "student bike Netherlands", "bike theft Netherlands"],
+      "readMins": 5,
+      "body": [
+        ["p", "A bike is not optional in Maastricht. It is how everybody gets to campus, to the supermarket and home from a night out, and the city is built on the assumption that you have one."],
+        ["h2", "What to pay"],
+        ["ul", [
+          "€120 to €250 for a decent second-hand bike from a shop, usually with a short warranty and a service included.",
+          "€60 to €120 privately, at more risk and with no recourse.",
+          "€300 and up for new, which for three years of study is defensible if you will keep it."
+        ]],
+        ["p", "Below about €60, you are buying somebody else's problem or somebody else's bike."],
+        ["h2", "Buy from a shop the first time"],
+        ["p", "A shop gives you a receipt, which proves the bike is yours, and a frame number recorded against your name. Both matter if it is ever recovered by the police. Second-hand shops around the station and the student areas do a steady trade in exactly this."],
+        ["callout", "If someone offers you a bike on the street for €25, it is stolen. Buying it is a criminal offence in the Netherlands, not a grey area, and it keeps the trade alive that will eventually take yours."],
+        ["h2", "Locks matter more than the bike"],
+        ["p", "Buy two locks of different types: a heavy chain or D-lock through the frame and the rack, plus the ring lock most Dutch bikes already have on the back wheel. Two different locks take two different tools, and most thefts are opportunistic."],
+        ["p", "Spend €40 to €70 on the good lock. It feels absurd next to a €150 bike until the week it is the reason you still have one."],
+        ["h2", "Where to park"],
+        ["p", "Use the guarded stallingen where they exist, especially near the station and in the centre. They are cheap or free and they are watched. Overnight, get the bike off the street entirely if your building allows it."],
+        ["h2", "If it is stolen"],
+        ["p", "Report it to the police online with the frame number from your receipt. Recovery rates are not high, but recovered bikes without an owner on record get auctioned, and yours cannot come back to you if nothing ties it to your name."]
+      ]
+    },
+    {
+      "slug": "cheap-protein-netherlands-students",
+      "title": "Eating well on a student budget in the Netherlands: where the cheap protein is",
+      "description": "What is actually cheap in Dutch supermarkets, which shops to use for what, and a week of meals that costs less than you would think.",
+      "date": "2026-08-16",
+      "keywords": ["cheap food Netherlands student", "student groceries Maastricht", "budget meals Netherlands"],
+      "readMins": 6,
+      "body": [
+        ["p", "Food is the budget line students underestimate most, and the one where a little local knowledge saves the most. Dutch supermarkets are not expensive, but they are expensive in different places than the ones you are used to."],
+        ["h2", "The cheapest protein per euro"],
+        ["ul", [
+          "Eggs. Consistently the best value protein in any Dutch supermarket.",
+          "Dried lentils and chickpeas. Slow to cook, close to free, and filling in a way that survives a long library day.",
+          "Tinned tuna and mackerel. Watch for offers, buy several.",
+          "Kwark and skyr. The Dutch dairy aisle is unusually good and unusually cheap. A tub of kwark is often better value than a protein shake.",
+          "Chicken thighs rather than breast. Cheaper, harder to overcook, more forgiving.",
+          "Whole milk and cheap block cheese, if you are not counting calories."
+        ]],
+        ["h2", "Which shop for what"],
+        ["p", "<strong>Lidl and Aldi</strong> for staples, dairy, tinned goods and their weekly vegetable offers. This is where the bulk of your money should go."],
+        ["p", "<strong>Albert Heijn</strong> for convenience, opening hours and the bonus offers, which are genuinely good if you shop the promotions rather than the shelf. The AH Bonuskaart is free and worth having."],
+        ["p", "<strong>Jumbo</strong> sits between the two and often wins on fresh meat."],
+        ["p", "<strong>The Markt</strong> on Wednesday and Friday mornings in Maastricht is where vegetables get cheap, especially in the last hour before stalls pack up."],
+        ["p", "<strong>Turkish and Moroccan supermarkets</strong> are the quiet answer for rice, pulses, spices, nuts and bread at a fraction of supermarket prices. Every student city has them and every student who finds them wonders why it took so long."],
+        ["h2", "The apps worth having"],
+        ["p", "Too Good To Go sells surplus food from bakeries and supermarkets at the end of the day for a few euro. Supermarket own apps flag reduced items. Neither is a hobby, both are ten minutes a week."],
+        ["h2", "The habit that saves the most"],
+        ["p", "Cook once, eat three times. A pot of lentil soup or a tray of roasted vegetables and chicken thighs on Sunday is four meals you do not buy on campus at €7 each. The saving is not in being frugal at the supermarket; it is in not being hungry and unprepared at two in the afternoon."]
+      ]
+    },
+    {
+      "slug": "preparing-for-dutch-winter",
+      "title": "Preparing for your first Dutch winter",
+      "description": "It is not the cold that gets people. It is the damp, the dark and the heating bill. What to do in October so January is manageable.",
+      "date": "2026-08-17",
+      "keywords": ["Dutch winter student", "damp mould Netherlands rental", "heating costs Netherlands"],
+      "readMins": 6,
+      "body": [
+        ["p", "Dutch winters are mild by the standards of most of Europe and miserable by the standards of most people's expectations. Temperatures hover a little above freezing, it rains sideways, and it is dark before you leave the library."],
+        ["p", "Three things are worth doing before it starts."],
+        ["h2", "1. Deal with damp before it becomes mould"],
+        ["p", "Older Dutch housing is damp, and student rooms are worse because several people are breathing, showering and drying laundry in a small space with the windows shut."],
+        ["ul", [
+          "Air the room properly every day. Ten minutes of windows fully open moves more moisture than an hour on the tilt.",
+          "Never dry laundry on a radiator with the window closed. That is a litre of water going into your walls.",
+          "Use the extractor fan in the bathroom, and leave it running after a shower.",
+          "If mould appears, photograph it and tell your landlord in writing straight away. In a dispute the date of that message matters."
+        ]],
+        ["callout", "Check for damp when you view a property, not after you sign. Look behind furniture, in wardrobe corners and along the bottom of external walls. This is one of the things we check on your behalf when we attend a viewing for you."],
+        ["h2", "2. Understand your heating bill before it arrives"],
+        ["p", "If energy is included in your rent, confirm in writing whether there is a cap and what happens if you exceed it. If it is not included, you will pay a monthly estimate and settle the difference once a year, which is where a large and unwelcome bill can appear."],
+        ["p", "Heating one room you are in beats heating a whole flat you are not. Closing doors, a draught excluder and a thick curtain do more than turning the thermostat up."],
+        ["h2", "3. Take the dark seriously"],
+        ["p", "In December it is dark before four in the afternoon. Students who come from further south often find this harder than they expect, and it is worth naming rather than being surprised by."],
+        ["p", "Daylight in the morning helps, even fifteen minutes outside. Vitamin D is cheap and widely recommended here over winter. Universities in Maastricht have student psychologists, and using them early is normal rather than dramatic."],
+        ["h2", "What to actually buy"],
+        ["ul", [
+          "A waterproof coat with a hood, not an umbrella. The wind wins.",
+          "Waterproof trousers if you cycle daily. Unglamorous, transformative.",
+          "Decent bike lights. They are legally required and the fine is more than the lights.",
+          "A hot water bottle, which is the cheapest heating you will ever buy."
+        ]]
+      ]
+    }
+  ]
+}
