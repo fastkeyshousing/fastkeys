@@ -14,6 +14,9 @@ import { json, fail, sameOrigin, methodNotAllowed } from '../../../lib/http.js';
 import { currentUser } from '../../../lib/admin-auth.js';
 import { retrieveCheckoutSession } from '../../../lib/stripe.js';
 import { reminderEmail } from '../../../lib/reminder-email.js';
+import { applicantEmail } from '../../../lib/applicant-email.js';
+import { propertyEmail, safeUrl } from '../../../lib/property-email.js';
+import { sendAndLog } from '../../../lib/send-log.js';
 
 const REF_RE = /^FK-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
 const VREF_RE = /^FV-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
@@ -24,6 +27,7 @@ const STATUSES = ['pending', 'paid', 'expired', 'failed'];
  * creates one, or removes one stays with the owner: a viewing schedule is
  * day-to-day work, an applicant's income figure is not. */
 const OWNER_ONLY = new Set(['update', 'remove', 'create', 'updateEmail', 'reconcile']);
+const EMAIL_KINDS = ['confirmation', 'receipt', 'reminder', 'property', 'custom'];
 
 const esc = (s) => String(s).replace(/'/g, "''");
 
@@ -34,21 +38,56 @@ const EDITABLE = [
 ];
 
 const routes = {
-  async list(env, { q, status }) {
+  async list(env, { q, status, sort, closed, docs, budgetMin, budgetMax }) {
     const where = [];
-    if (status && status !== 'all') where.push(`status = '${esc(status)}'`);
+    if (status && status !== 'all') where.push(`a.status = '${esc(status)}'`);
     if (q) {
       const term = esc(String(q).toLowerCase().slice(0, 80));
       where.push(
-        `(lower(reference) LIKE '%${term}%' OR lower(name) LIKE '%${term}%' OR lower(email) LIKE '%${term}%')`
+        `(lower(a.reference) LIKE '%${term}%' OR lower(a.name) LIKE '%${term}%' OR lower(a.email) LIKE '%${term}%')`
       );
     }
+    /* Closed cases are shown by default and dimmed, rather than hidden: they are
+     * still the record of somebody we placed, and hiding them by default is how
+     * you lose track of your own successes. */
+    if (closed === 'open') where.push(`a.case_closed_at IS NULL`);
+    if (closed === 'closed') where.push(`a.case_closed_at IS NOT NULL`);
+    if (docs === 'yes') where.push(`EXISTS (SELECT 1 FROM documents d WHERE d.reference = a.reference AND d.deleted_at IS NULL)`);
+    if (docs === 'no') where.push(`NOT EXISTS (SELECT 1 FROM documents d WHERE d.reference = a.reference AND d.deleted_at IS NULL)`);
+
+    /* Budget lives inside the JSON payload, so it is pulled out with
+     * json_extract and compared as a number. Rows with no budget are excluded
+     * from a budget filter rather than treated as zero. */
+    const bmin = Number(budgetMin);
+    const bmax = Number(budgetMax);
+    if (Number.isFinite(bmin) && bmin > 0) {
+      where.push(`CAST(COALESCE(json_extract(a.payload,'$.budget'),0) AS REAL) >= ${bmin}`);
+    }
+    if (Number.isFinite(bmax) && bmax > 0) {
+      where.push(`CAST(COALESCE(json_extract(a.payload,'$.budget'),0) AS REAL) <= ${bmax}`);
+      where.push(`json_extract(a.payload,'$.budget') IS NOT NULL`);
+    }
+
+    const ORDERS = {
+      recent: 'COALESCE(a.paid_at, a.created_at) DESC',
+      oldest: 'COALESCE(a.paid_at, a.created_at) ASC',
+      name: 'lower(a.name) ASC',
+      nameDesc: 'lower(a.name) DESC',
+      budget: "CAST(COALESCE(json_extract(a.payload,'$.budget'),0) AS REAL) DESC",
+      budgetAsc: "CAST(COALESCE(json_extract(a.payload,'$.budget'),0) AS REAL) ASC",
+    };
+    const order = ORDERS[sort] || ORDERS.recent;
+
     const rows = await env.DB.prepare(
-      `SELECT reference, status, name, email, amount_total, currency, created_at,
-              paid_at, notified_at, applicant_emailed_at, reminder_sent_at, reminder_count
-         FROM applications
+      `SELECT a.reference, a.status, a.name, a.email, a.amount_total, a.currency,
+              a.created_at, a.paid_at, a.notified_at, a.applicant_emailed_at,
+              a.reminder_sent_at, a.reminder_count, a.case_closed_at, a.case_note,
+              json_extract(a.payload,'$.budget') AS budget,
+              json_extract(a.payload,'$.city')   AS city,
+              (SELECT COUNT(*) FROM documents d WHERE d.reference = a.reference AND d.deleted_at IS NULL) AS doc_count
+         FROM applications a
         ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-        ORDER BY COALESCE(paid_at, created_at) DESC LIMIT 300`
+        ORDER BY ${order} LIMIT 300`
     ).all();
     const counts = await env.DB.prepare(
       `SELECT status, COUNT(*) AS n FROM applications GROUP BY status`
@@ -91,6 +130,10 @@ const routes = {
     try { application = JSON.parse(row.payload); } catch { /* show the row anyway */ }
     delete row.payload;
     delete row.ip_hash;
+    const docs = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM documents WHERE reference = ?1 AND deleted_at IS NULL`
+    ).bind(reference).first().catch(() => ({ n: 0 }));
+    row.doc_count = docs?.n ?? 0;
     return { row, application };
   },
 
@@ -274,20 +317,14 @@ const routes = {
       siteUrl: site, supportEmail: support, kind: isViewing ? 'viewing' : 'application',
     });
 
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${env.RESEND_API_KEY}`,
-        'content-type': 'application/json',
-        /* Keyed on the attempt number, so a double click cannot send twice but a
-         * deliberate second reminder still can. */
-        'idempotency-key': `reminder-${row.reference}-${already + 1}`,
-      },
-      body: JSON.stringify({
-        from: env.NOTIFY_FROM, to: [payload.email], reply_to: support, subject, html, text,
-      }),
+    await sendAndLog(env, {
+      reference: row.reference, kind: 'reminder', to: payload.email,
+      subject, html, text, sentBy: user.email,
+      meta: { attempt: already + 1, status: row.status },
+      /* Keyed on the attempt number, so a double click cannot send twice but a
+       * deliberate second reminder still can. */
+      idempotencyKey: `reminder-${row.reference}-${already + 1}`,
     });
-    if (!res.ok) throw new Error(`Could not send: ${res.status} ${await res.text()}`);
 
     await env.DB.prepare(
       `UPDATE ${table}
@@ -297,6 +334,134 @@ const routes = {
 
     console.log(`[remind] ${user.email} chased ${row.reference} (attempt ${already + 1})`);
     return { ok: true, sentTo: payload.email, attempt: already + 1 };
+  },
+
+  /* Everything on one applicant's email history, plus the case flag, for the
+   * mail view. Deliberately thin on personal detail: this screen is about what
+   * was sent and when, not about their income. */
+  async emails(env, { q, kind, unsent }) {
+    const where = [];
+    if (q) {
+      const term = esc(String(q).toLowerCase().slice(0, 80));
+      where.push(`(lower(a.reference) LIKE '%${term}%' OR lower(a.name) LIKE '%${term}%' OR lower(a.email) LIKE '%${term}%')`);
+    }
+    if (unsent === 'confirmation') where.push(`a.applicant_emailed_at IS NULL AND a.status = 'paid'`);
+    if (unsent === 'reminder') where.push(`a.reminder_count = 0 AND a.status <> 'paid'`);
+
+    const rows = await env.DB.prepare(
+      `SELECT a.reference, a.name, a.email, a.status, a.created_at, a.paid_at,
+              a.applicant_emailed_at, a.reminder_sent_at, a.reminder_count,
+              a.receipt_url, a.case_closed_at,
+              (SELECT COUNT(*) FROM email_log e WHERE e.reference = a.reference AND e.status='sent') AS sent_count,
+              (SELECT COUNT(*) FROM email_log e WHERE e.reference = a.reference AND e.status='failed') AS failed_count,
+              (SELECT MAX(sent_at) FROM email_log e WHERE e.reference = a.reference) AS last_email_at
+         FROM applications a
+        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+        ORDER BY COALESCE(a.paid_at, a.created_at) DESC LIMIT 300`
+    ).all();
+    return { rows: rows.results ?? [] };
+  },
+
+  /* The full send history for one reference. */
+  async emailLog(env, { reference }) {
+    if (!REF_RE.test(reference || '') && !VREF_RE.test(reference || '')) {
+      throw new Error('Not a valid reference');
+    }
+    const rows = await env.DB.prepare(
+      `SELECT kind, subject, recipient, sent_by, sent_at, status, error, meta
+         FROM email_log WHERE reference = ?1 ORDER BY sent_at DESC LIMIT 100`
+    ).bind(reference).all();
+    return { rows: rows.results ?? [] };
+  },
+
+  /* Resends the confirmation, which doubles as the receipt: it carries the
+   * Stripe receipt link and the details on file. */
+  async sendConfirmation(env, { reference }, user) {
+    if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
+    const row = await env.DB.prepare(
+      `SELECT reference, email, payload, receipt_url, status FROM applications WHERE reference = ?1`
+    ).bind(reference).first();
+    if (!row) throw new Error('No application with that reference');
+    if (row.status !== 'paid') throw new Error(`This one is "${row.status}", not paid`);
+
+    const application = JSON.parse(row.payload);
+    if (!application.email) application.email = row.email;
+    const site = (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '');
+    const support = env.NOTIFY_EMAIL || 'hello@fastkeyshousing.com';
+    const { subject, html, text } = applicantEmail({
+      reference: row.reference, application, receiptUrl: row.receipt_url || null,
+      siteUrl: site, supportEmail: support,
+    });
+
+    await sendAndLog(env, {
+      reference: row.reference, kind: 'confirmation', to: application.email,
+      subject, html, text, sentBy: user.email,
+      meta: { receipt: !!row.receipt_url },
+    });
+
+    await env.DB.prepare(`UPDATE applications SET applicant_emailed_at = ?1 WHERE reference = ?2`)
+      .bind(new Date().toISOString(), row.reference).run();
+    return { ok: true, sentTo: application.email };
+  },
+
+  /* A specific property, put in front of one applicant. */
+  async sendProperty(env, params, user) {
+    const reference = String(params.reference || '');
+    if (!REF_RE.test(reference)) throw new Error('Not a valid reference');
+    const row = await env.DB.prepare(
+      `SELECT reference, name, email, payload FROM applications WHERE reference = ?1`
+    ).bind(reference).first();
+    if (!row) throw new Error('No application with that reference');
+
+    let application = {};
+    try { application = JSON.parse(row.payload); } catch { /* columns will do */ }
+    const to = application.email || row.email;
+
+    const images = (Array.isArray(params.images) ? params.images : String(params.images || '').split(/\s+/))
+      .map(safeUrl).filter(Boolean).slice(0, 6);
+
+    if (!params.address && !params.headline) throw new Error('Give it an address or a headline');
+
+    const site = (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '');
+    const { subject, html, text } = propertyEmail({
+      recipientName: application.name || row.name,
+      reference: row.reference,
+      headline: String(params.headline || '').slice(0, 160),
+      intro: String(params.intro || '').slice(0, 2000),
+      images, listingUrl: params.listing_url,
+      address: String(params.address || '').slice(0, 200),
+      rent: String(params.rent || '').slice(0, 60),
+      deposit: String(params.deposit || '').slice(0, 60),
+      available: String(params.available || '').slice(0, 60),
+      size: String(params.size || '').slice(0, 60),
+      rooms: String(params.rooms || '').slice(0, 60),
+      furnished: String(params.furnished || '').slice(0, 60),
+      registration: String(params.registration || '').slice(0, 60),
+      bodyText: String(params.body || '').slice(0, 4000),
+      siteUrl: site, supportEmail: env.NOTIFY_EMAIL || 'hello@fastkeyshousing.com',
+    });
+
+    await sendAndLog(env, {
+      reference: row.reference, kind: 'property', to, subject, html, text,
+      sentBy: user.email,
+      meta: { address: params.address || null, rent: params.rent || null, images: images.length },
+    });
+    return { ok: true, sentTo: to, subject };
+  },
+
+  /* Marks a case closed, or reopens it. A toggle, so a mistake costs one click. */
+  async caseToggle(env, { reference, closed, note }, user) {
+    if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
+    if (closed) {
+      await env.DB.prepare(
+        `UPDATE applications SET case_closed_at = ?1, case_closed_by = ?2, case_note = ?3 WHERE reference = ?4`
+      ).bind(new Date().toISOString(), user.email, String(note || '').slice(0, 400), reference).run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE applications SET case_closed_at = NULL, case_closed_by = NULL WHERE reference = ?1`
+      ).bind(reference).run();
+    }
+    return { ok: true, closed: !!closed };
   },
 
   async remove(env, { reference, confirm }) {

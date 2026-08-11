@@ -714,6 +714,32 @@ textarea.pn-in{min-height:60px; resize:vertical}
 .pn-modal.open{display:grid}
 .pn-modal .bx{background:#3A4553; border:1px solid rgba(255,255,255,.12); border-radius:16px;
   padding:22px 24px; width:min(640px,92vw); max-height:88vh; overflow:auto}
+/* case closed: dimmed rather than hidden, and reversible */
+.pn-r.closed{opacity:.42}
+.pn-r.closed .nm::after{content:' \2713 placed'; color:#8FD3A3; font-size:11.5px; font-weight:700;
+  letter-spacing:.05em; text-transform:uppercase; margin-left:7px}
+.pn-r.closed:hover{opacity:.72}
+.pn-tabs{display:flex; gap:4px; margin-right:6px}
+.pn-tab{background:transparent; border:1px solid rgba(255,255,255,.12); border-radius:9px;
+  padding:8px 15px; font-size:13.6px; font-weight:600; color:rgba(237,239,242,.65); cursor:pointer}
+.pn-tab.on{background:rgba(224,163,94,.16); border-color:rgba(224,163,94,.5); color:var(--key)}
+.pn-filters{display:flex; gap:8px; flex-wrap:wrap; padding:0 20px 11px;
+  border-bottom:1px solid rgba(255,255,255,.1)}
+.pn-filters .pn-in{width:auto; font-size:13.4px; padding:7px 10px}
+.pn-filters .num{width:92px}
+.pn-mailrow{display:grid; grid-template-columns:1fr auto; gap:5px 12px;
+  padding:12px 20px; border-bottom:1px solid rgba(237,239,242,.055); cursor:pointer}
+.pn-mailrow:hover{background:rgba(255,255,255,.035)}
+.pn-mailrow.sel{background:rgba(224,163,94,.12); box-shadow:inset 3px 0 0 var(--key)}
+.pn-ticks{grid-column:1/-1; display:flex; gap:14px; flex-wrap:wrap; margin-top:3px}
+.pn-tick{font-size:11.8px; display:flex; align-items:center; gap:5px; color:rgba(237,239,242,.38)}
+.pn-tick.on{color:#8FD3A3}
+.pn-tick.bad{color:#F0A9A9}
+.pn-logline{display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:baseline;
+  padding:10px 0; border-top:1px solid rgba(237,239,242,.07); font-size:13.6px}
+.pn-logkind{font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+  padding:2px 8px; border-radius:999px; background:rgba(224,163,94,.14); color:var(--key)}
+.pn-logkind.failed{background:rgba(240,169,169,.16); color:#F0A9A9}
 .pn-hint2{font-size:12.6px; color:rgba(237,239,242,.42); line-height:1.55; margin-top:7px}
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -770,6 +796,10 @@ textarea.pn-in{min-height:60px; resize:vertical}
       </div>
 
       <div class="pn-tb">
+        <div class="pn-tabs">
+          <button class="pn-tab on" data-view="clients">Clients</button>
+          <button class="pn-tab" data-view="mail">Mail</button>
+        </div>
         <select id="pnKind" class="pn-in" style="width:auto">
           <option value="list">Applications</option>
           <option value="viewings">Viewings</option>
@@ -786,6 +816,30 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <button class="pn-b gh" id="pnRefresh">Refresh</button>
         <button class="pn-b" id="pnRecon">Reconcile with Stripe</button>
         <button class="pn-b gh" id="pnNew">+ New</button>
+      </div>
+
+      <div class="pn-filters" id="pnFilters">
+        <select id="pnSort" class="pn-in">
+          <option value="recent">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="name">Name A&ndash;Z</option>
+          <option value="nameDesc">Name Z&ndash;A</option>
+          <option value="budget">Budget, high to low</option>
+          <option value="budgetAsc">Budget, low to high</option>
+        </select>
+        <select id="pnClosed" class="pn-in">
+          <option value="all">Open and placed</option>
+          <option value="open">Open only</option>
+          <option value="closed">Placed only</option>
+        </select>
+        <select id="pnDocs" class="pn-in">
+          <option value="all">Any documents</option>
+          <option value="yes">Has documents</option>
+          <option value="no">No documents</option>
+        </select>
+        <input id="pnBMin" class="pn-in num" type="number" placeholder="&euro; min" min="0">
+        <input id="pnBMax" class="pn-in num" type="number" placeholder="&euro; max" min="0">
+        <button class="pn-b gh" id="pnClear" style="padding:7px 13px;font-size:13.4px">Clear</button>
       </div>
 
       <div class="pn-main">
@@ -815,6 +869,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
     function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
 
   var me = null, selected = null, selectedKind = 'list', cachedRows = [];
+  var view = 'clients';   /* clients | mail */
 
   function when(s){
     if(!s) return '\u2014';
@@ -928,9 +983,14 @@ textarea.pn-in{min-height:60px; resize:vertical}
 
   /* ------------------------------------------------------------------ list */
   function load(){
+    if(view === 'mail') return loadMail();
     selectedKind = $('#pnKind').value;
     $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
-    api(selectedKind, {q: $('#pnQ').value.trim(), status: $('#pnStatus').value})
+    api(selectedKind, {
+      q: $('#pnQ').value.trim(), status: $('#pnStatus').value,
+      sort: $('#pnSort').value, closed: $('#pnClosed').value, docs: $('#pnDocs').value,
+      budgetMin: $('#pnBMin').value, budgetMax: $('#pnBMax').value
+    })
       .then(function(d){
         cachedRows = d.rows;
         var counts = d.counts || [];
@@ -953,9 +1013,16 @@ textarea.pn-in{min-height:60px; resize:vertical}
             if(r.status === 'paid' && r.service === 'express' && !r.attended_at) flags.push('EXPRESS \u2014 24h clock running');
           }
           var pill = selectedKind === 'viewings' ? r.service : r.status;
-          var meta = selectedKind === 'viewings'
-            ? esc(r.property_address || '') : esc(r.email);
-          return '<div class="pn-r" data-ref="' + esc(r.reference) + '">' +
+          var bits = [];
+          if(selectedKind !== 'viewings'){
+            bits.push(esc(r.email));
+            if(r.budget) bits.push('\u20ac' + esc(r.budget));
+            if(r.doc_count) bits.push(r.doc_count + ' doc' + (r.doc_count > 1 ? 's' : ''));
+          } else {
+            bits.push(esc(r.property_address || ''));
+          }
+          var meta = bits.join(' \u00b7 ');
+          return '<div class="pn-r' + (r.case_closed_at ? ' closed' : '') + '" data-ref="' + esc(r.reference) + '">' +
             '<span class="nm">' + esc(r.name) + '</span>' +
             '<span class="pn-pill ' + esc(pill) + '">' + esc(pill) + '</span>' +
             '<span class="rf">' + esc(r.reference) + '</span>' +
@@ -1026,19 +1093,19 @@ textarea.pn-in{min-height:60px; resize:vertical}
       (r.receipt_url ? '<p class="pn-hint2"><a href="' + esc(r.receipt_url) + '" target="_blank" rel="noopener" style="color:var(--key)">Stripe receipt</a> (expires after 30 days)</p>' : '') +
       '</div>' +
 
-      (r.status !== 'paid'
-        ? '<div class="pn-sec"><h3>Chase this payment</h3>' +
-          '<p class="pn-hint2" style="margin-top:0">This is <b>' + esc(r.status) + '</b>. ' +
-          'If Stripe shows the money arrived, press Reconcile first. Otherwise send them a ' +
-          'reminder with a link that resumes their stored answers.</p>' +
-          (r.reminder_count
-            ? '<p class="pn-hint2">Already reminded ' + r.reminder_count +
-              ' time(s), last on ' + esc(when(r.reminder_sent_at)) + '.</p>' : '') +
-          '<div class="pn-acts"><button class="pn-b" id="pnRemind">' +
-          (r.reminder_count ? 'Send another reminder' : 'Send payment reminder') +
-          ' to ' + esc(r.email) + '</button></div>' +
-          '<div class="pn-msg2" id="pnRemindMsg"></div></div>'
-        : '') +
+      /* Email moved to the Mail tab, which is where the whole history lives. */
+      '<div class="pn-sec"><h3>Case</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">' +
+      (r.case_closed_at
+        ? 'Placed on ' + esc(when(r.case_closed_at)) + ' by ' + esc(r.case_closed_by || '') + '.' +
+          (r.case_note ? '<br>' + esc(r.case_note) : '')
+        : 'Still open. Mark it placed once they have signed, and the row dims in the list.') +
+      '</p><div class="pn-inline">' +
+      (r.case_closed_at ? '' :
+        '<input id="pnCaseNote" class="pn-in" placeholder="Where did they end up? (optional)">') +
+      '<button class="pn-b' + (r.case_closed_at ? ' gh' : '') + '" id="pnCase">' +
+      (r.case_closed_at ? 'Reopen this case' : 'Mark as placed') + '</button></div>' +
+      '<div class="pn-msg2" id="pnCaseMsg"></div></div>' +
 
       '<div class="pn-sec"><h3>Documents</h3><div id="pnDocList"></div>' +
       '<div class="pn-inline">' +
@@ -1097,7 +1164,18 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
 
     loadDocs(r.reference);
-    wireRemind(r.reference);
+
+    $('#pnCase').onclick = function(){
+      var closing = !r.case_closed_at;
+      api('caseToggle', {reference: r.reference, closed: closing,
+                         note: closing && $('#pnCaseNote') ? $('#pnCaseNote').value.trim() : ''}, 'POST')
+        .then(function(){
+          note('#pnCaseMsg', closing ? 'Marked as placed.' : 'Reopened.', true);
+          load();
+          openRow(r.reference);
+        })
+        .catch(function(e){ note('#pnCaseMsg', e.message, false); });
+    };
 
     if(editable){
       $('#pnSaveF').onclick = function(){
@@ -1155,17 +1233,6 @@ textarea.pn-in{min-height:60px; resize:vertical}
       '<input type="file" id="pnDocFile" class="pn-in" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx">' +
       '<button class="pn-b" id="pnDocUp">Upload</button></div>' +
       '<div class="pn-msg2" id="pnDocMsg"></div></div>' +
-      (v.status !== 'paid'
-        ? '<div class="pn-sec"><h3>Chase this payment</h3>' +
-          '<p class="pn-hint2" style="margin-top:0">This booking is <b>' + esc(v.status) + '</b>.</p>' +
-          (v.reminder_count
-            ? '<p class="pn-hint2">Already reminded ' + v.reminder_count +
-              ' time(s), last on ' + esc(when(v.reminder_sent_at)) + '.</p>' : '') +
-          '<div class="pn-acts"><button class="pn-b" id="pnRemind">' +
-          (v.reminder_count ? 'Send another reminder' : 'Send payment reminder') +
-          '</button></div><div class="pn-msg2" id="pnRemindMsg"></div></div>'
-        : '') +
-
       '<div class="pn-sec"><h3>Scheduling</h3><div class="pn-grid">' +
       '<div><label for="pnSched">Slot agreed</label><input id="pnSched" class="pn-in" value="' + esc(v.scheduled_for || '') + '" placeholder="Thu 14 Aug, 17:30"></div>' +
       '<div><label for="pnAtt">Attended at</label><input id="pnAtt" class="pn-in" value="' + esc(v.attended_at || '') + '" placeholder="2026-08-14 17:30"></div>' +
@@ -1180,12 +1247,198 @@ textarea.pn-in{min-height:60px; resize:vertical}
       setTimeout(function(){ c.textContent='Copy'; c.classList.remove('done'); }, 2200);
     };
     loadDocs(ref);
-    wireRemind(ref);
     $('#pnVSave').onclick = function(){
       api('viewingUpdate', {reference: ref, scheduled_for: $('#pnSched').value.trim(),
                             attended_at: $('#pnAtt').value.trim()}, 'POST')
         .then(function(){ note('#pnVMsg', 'Saved.', true); load(); })
         .catch(function(e){ note('#pnVMsg', e.message, false); });
+    };
+  }
+
+  /* ------------------------------------------------------------------ mail
+     A different question from the client view: not who they are, but what has
+     been sent to them and when. So the rows are ticks and timestamps, and the
+     pane is a send history plus the buttons that add to it. */
+  function loadMail(){
+    $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
+    api('emails', {q: $('#pnQ').value.trim()})
+      .then(function(d){
+        var pending = d.rows.filter(function(r){ return r.status === 'paid' && !r.applicant_emailed_at; }).length;
+        $('#pnStats').innerHTML = '<span><b>' + d.rows.length + '</b> clients</span>' +
+          (pending ? '<span class="warn"><b>' + pending + '</b> awaiting a receipt</span>' : '');
+        if(!d.rows.length){ $('#pnList').innerHTML = '<div class="pn-empty">Nothing matches.</div>'; return; }
+
+        $('#pnList').innerHTML = d.rows.map(function(r){
+          function tick(on, label, bad){
+            return '<span class="pn-tick' + (on ? ' on' : (bad ? ' bad' : '')) + '">' +
+              (on ? '\u2713' : '\u25cb') + ' ' + label + '</span>';
+          }
+          return '<div class="pn-mailrow' + (r.case_closed_at ? ' closed' : '') +
+            '" data-ref="' + esc(r.reference) + '">' +
+            '<span class="nm">' + esc(r.name) + '</span>' +
+            '<span class="pn-pill ' + esc(r.status) + '">' + esc(r.status) + '</span>' +
+            '<span class="mt" style="grid-column:1/-1">' + esc(r.email) + '</span>' +
+            '<div class="pn-ticks">' +
+              tick(r.applicant_emailed_at, 'receipt') +
+              tick(r.reminder_count > 0, 'reminder' + (r.reminder_count > 1 ? ' \u00d7' + r.reminder_count : '')) +
+              tick(r.sent_count > 0, (r.sent_count || 0) + ' sent') +
+              (r.failed_count ? tick(false, r.failed_count + ' failed', true) : '') +
+              (r.last_email_at ? '<span class="pn-tick">last ' + esc(when(r.last_email_at)) + '</span>' : '') +
+            '</div></div>';
+        }).join('');
+
+        Array.prototype.forEach.call(document.querySelectorAll('.pn-mailrow'), function(el){
+          el.addEventListener('click', function(){ openMail(el.dataset.ref, d.rows); });
+        });
+      })
+      .catch(function(e){ $('#pnList').innerHTML = '<div class="pn-empty">' + esc(e.message) + '</div>'; });
+  }
+
+  function openMail(ref, rows){
+    var r = rows.filter(function(x){ return x.reference === ref; })[0];
+    if(!r) return;
+    selected = ref;
+    Array.prototype.forEach.call(document.querySelectorAll('.pn-mailrow'), function(el){
+      el.classList.toggle('sel', el.dataset.ref === ref);
+    });
+    $('#pnPane').classList.add('open');
+    $('#pnPane').innerHTML =
+      '<h2 class="pn-h2">' + esc(r.name) + '</h2>' +
+      '<div class="pn-refbig"><code>' + esc(r.reference) + '</code>' +
+      '<span class="pn-pill ' + esc(r.status) + '">' + esc(r.status) + '</span></div>' +
+      '<p class="pn-hint2" style="margin-top:-6px">' + esc(r.email) + '</p>' +
+
+      '<div class="pn-sec"><h3>Send</h3><div class="pn-acts">' +
+      '<button class="pn-b" id="mSendReceipt"' + (r.status !== 'paid' ? ' disabled' : '') + '>' +
+        (r.applicant_emailed_at ? 'Resend receipt' : 'Send receipt') + '</button>' +
+      '<button class="pn-b gh" id="mSendReminder"' + (r.status === 'paid' ? ' disabled' : '') + '>' +
+        'Payment reminder</button>' +
+      '<button class="pn-b gh" id="mSendProperty">Send a property</button>' +
+      '</div>' +
+      (r.status !== 'paid'
+        ? '<p class="pn-hint2">Unpaid, so the receipt is unavailable. The reminder links back to a ' +
+          'page that resumes their stored answers.</p>'
+        : '<p class="pn-hint2">The receipt carries their reference, the Stripe receipt link and the ' +
+          'details we hold.</p>') +
+      '<div class="pn-msg2" id="mMsg"></div></div>' +
+
+      '<div class="pn-sec"><h3>Everything sent to them</h3><div id="mLog">' +
+      '<p class="pn-hint2" style="margin:0">Loading\u2026</p></div></div>';
+
+    loadLog(ref);
+
+    var refresh = function(){ loadLog(ref); loadMail(); };
+    $('#mSendReceipt').onclick = function(){ send('sendConfirmation', {reference: ref}, this, refresh); };
+    $('#mSendReminder').onclick = function(){
+      send('remind', {reference: ref}, this, refresh, true);
+    };
+    $('#mSendProperty').onclick = function(){ propertyComposer(ref, r, refresh); };
+  }
+
+  function send(route, params, btn, after, mayRepeat){
+    var was = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Sending\u2026';
+    var go = function(force){
+      api(route, Object.assign({}, params, force ? {force: true} : {}), 'POST')
+        .then(function(res){
+          note('#mMsg', 'Sent to ' + (res.sentTo || 'them') + '.', true);
+          btn.textContent = 'Sent';
+          if(after) after();
+        })
+        .catch(function(e){
+          btn.disabled = false; btn.textContent = was;
+          if(mayRepeat && /Send again\?/.test(e.message)){
+            if(confirm(e.message)) { btn.disabled = true; btn.textContent = 'Sending\u2026'; go(true); }
+            return;
+          }
+          note('#mMsg', e.message, false);
+        });
+    };
+    go(false);
+  }
+
+  function loadLog(ref){
+    api('emailLog', {reference: ref})
+      .then(function(d){
+        var box = $('#mLog');
+        if(!box) return;
+        if(!d.rows.length){
+          box.innerHTML = '<p class="pn-hint2" style="margin:0">Nothing has been sent yet.</p>';
+          return;
+        }
+        box.innerHTML = d.rows.map(function(e){
+          var meta = '';
+          try { var m = JSON.parse(e.meta || '{}');
+            if(m.address) meta = esc(m.address);
+            else if(m.attempt) meta = 'attempt ' + m.attempt;
+          } catch(x){}
+          return '<div class="pn-logline">' +
+            '<span class="pn-logkind' + (e.status === 'failed' ? ' failed' : '') + '">' + esc(e.kind) + '</span>' +
+            '<span><b style="color:var(--chalk)">' + esc(e.subject) + '</b>' +
+              (meta ? '<br><span style="color:rgba(237,239,242,.42);font-size:12.4px">' + meta + '</span>' : '') +
+              (e.error ? '<br><span style="color:#F0A9A9;font-size:12.4px">' + esc(e.error) + '</span>' : '') +
+              '<br><span style="color:rgba(237,239,242,.38);font-size:12.2px">to ' + esc(e.recipient) +
+              ' by ' + esc(e.sent_by) + '</span></span>' +
+            '<span style="color:rgba(237,239,242,.42);font-size:12.4px;white-space:nowrap">' +
+              esc(when(e.sent_at)) + '</span></div>';
+        }).join('');
+      })
+      .catch(function(){ if($('#mLog')) $('#mLog').innerHTML = '<p class="pn-hint2">Could not load the history.</p>'; });
+  }
+
+  /* The property composer. Image URLs rather than uploads: a listing photo is
+     already hosted, and attachments are the fastest way into a spam folder. */
+  function propertyComposer(ref, client, after){
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">Send a property to ' + esc(client.name) + '</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">Branded, with photos and the numbers a tenant ' +
+      'decides on. Paste image links, one per line.</p>' +
+      '<div class="pn-grid">' +
+      '<div class="wide"><label for="pr_headline">Headline</label>' +
+        '<input id="pr_headline" class="pn-in" placeholder="A studio on Brusselsestraat, available 1 September"></div>' +
+      '<div class="wide"><label for="pr_intro">Opening line</label>' +
+        '<textarea id="pr_intro" class="pn-in" placeholder="We saw this one this morning and thought of your budget and your dates."></textarea></div>' +
+      '<div class="wide"><label for="pr_images">Image links, one per line</label>' +
+        '<textarea id="pr_images" class="pn-in" placeholder="https://..."></textarea></div>' +
+      '<div class="wide"><label for="pr_listing">Listing link</label>' +
+        '<input id="pr_listing" class="pn-in" placeholder="https://www.pararius.nl/..."></div>' +
+      '<div><label for="pr_address">Address</label><input id="pr_address" class="pn-in"></div>' +
+      '<div><label for="pr_rent">Rent</label><input id="pr_rent" class="pn-in" placeholder="\u20ac950 incl."></div>' +
+      '<div><label for="pr_deposit">Deposit</label><input id="pr_deposit" class="pn-in" placeholder="\u20ac950"></div>' +
+      '<div><label for="pr_available">Available from</label><input id="pr_available" class="pn-in" placeholder="1 September"></div>' +
+      '<div><label for="pr_size">Size</label><input id="pr_size" class="pn-in" placeholder="32 m\u00b2"></div>' +
+      '<div><label for="pr_rooms">Rooms</label><input id="pr_rooms" class="pn-in" placeholder="Studio"></div>' +
+      '<div><label for="pr_furnished">Furnished</label><input id="pr_furnished" class="pn-in" placeholder="Furnished"></div>' +
+      '<div><label for="pr_reg">Registration possible</label><input id="pr_reg" class="pn-in" placeholder="Yes"></div>' +
+      '<div class="wide"><label for="pr_body">What we think</label>' +
+        '<textarea id="pr_body" class="pn-in" style="min-height:110px" placeholder="Quiet street, five minutes from the centre by bike. The kitchen is small but it is a proper studio, so huurtoeslag may apply."></textarea></div>' +
+      '</div>' +
+      '<div class="pn-acts"><button class="pn-b" id="prSend">Send it</button>' +
+      '<button class="pn-b gh" id="prCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="prMsg"></div>';
+    $('#pnModal').classList.add('open');
+    $('#prCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+    $('#prSend').onclick = function(){
+      var btn = $('#prSend');
+      btn.disabled = true; btn.textContent = 'Sending\u2026';
+      api('sendProperty', {
+        reference: ref,
+        headline: $('#pr_headline').value.trim(), intro: $('#pr_intro').value.trim(),
+        images: $('#pr_images').value.split(/\s+/).filter(Boolean),
+        listing_url: $('#pr_listing').value.trim(),
+        address: $('#pr_address').value.trim(), rent: $('#pr_rent').value.trim(),
+        deposit: $('#pr_deposit').value.trim(), available: $('#pr_available').value.trim(),
+        size: $('#pr_size').value.trim(), rooms: $('#pr_rooms').value.trim(),
+        furnished: $('#pr_furnished').value.trim(), registration: $('#pr_reg').value.trim(),
+        body: $('#pr_body').value.trim()
+      }, 'POST').then(function(res){
+        $('#pnModal').classList.remove('open');
+        note('#mMsg', 'Property sent to ' + res.sentTo + '.', true);
+        if(after) after();
+      }).catch(function(e){
+        btn.disabled = false; btn.textContent = 'Send it';
+        note('#prMsg', e.message, false);
+      });
     };
   }
 
@@ -1336,6 +1589,40 @@ textarea.pn-in{min-height:60px; resize:vertical}
   });
 
   var t;
+  ['#pnSort','#pnClosed','#pnDocs'].forEach(function(s){
+    $(s).addEventListener('change', load);
+  });
+  ['#pnBMin','#pnBMax'].forEach(function(s){
+    $(s).addEventListener('input', function(){ clearTimeout(t); t = setTimeout(load, 450); });
+  });
+  $('#pnClear').addEventListener('click', function(){
+    $('#pnQ').value = ''; $('#pnStatus').value = 'all'; $('#pnSort').value = 'recent';
+    $('#pnClosed').value = 'all'; $('#pnDocs').value = 'all';
+    $('#pnBMin').value = ''; $('#pnBMax').value = '';
+    load();
+  });
+
+  /* Switching between the client view and the mail view. The two share the list
+     but answer different questions, so the toolbar changes with them. */
+  Array.prototype.forEach.call(document.querySelectorAll('.pn-tab'), function(tab){
+    tab.addEventListener('click', function(){
+      view = tab.dataset.view;
+      Array.prototype.forEach.call(document.querySelectorAll('.pn-tab'), function(x){
+        x.classList.toggle('on', x === tab);
+      });
+      var mail = view === 'mail';
+      $('#pnKind').style.display = mail ? 'none' : '';
+      $('#pnStatus').style.display = mail ? 'none' : '';
+      $('#pnFilters').style.display = mail ? 'none' : '';
+      if($('#pnRecon')) $('#pnRecon').style.display = (mail || !isOwner()) ? 'none' : '';
+      if($('#pnNew')) $('#pnNew').style.display = (mail || !isOwner()) ? 'none' : '';
+      selected = null;
+      $('#pnPane').innerHTML = '<div class="pn-empty"><div>' +
+        (mail ? 'Select somebody to see what has been sent to them.' : 'Select an entry.') + '</div></div>';
+      load();
+    });
+  });
+
   $('#pnQ').addEventListener('input', function(){ clearTimeout(t); t = setTimeout(load, 350); });
   $('#pnStatus').addEventListener('change', load);
   $('#pnRefresh').addEventListener('click', load);
