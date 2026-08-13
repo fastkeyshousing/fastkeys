@@ -17,6 +17,7 @@ import { reminderEmail } from '../../../lib/reminder-email.js';
 import { applicantEmail } from '../../../lib/applicant-email.js';
 import { propertyEmail, safeUrl } from '../../../lib/property-email.js';
 import { sendAndLog } from '../../../lib/send-log.js';
+import { customEmail } from '../../../lib/custom-email.js';
 
 const REF_RE = /^FK-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
 const VREF_RE = /^FV-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
@@ -462,6 +463,138 @@ const routes = {
       ).bind(reference).run();
     }
     return { ok: true, closed: !!closed };
+  },
+
+  /* ------------------------------------------------------- property tracker */
+  async properties(env, { reference, status, q }) {
+    const where = [];
+    if (reference) {
+      if (!REF_RE.test(reference)) throw new Error('Not a valid reference');
+      where.push(`p.reference = '${esc(reference)}'`);
+    }
+    if (status && status !== 'all') where.push(`p.status = '${esc(status)}'`);
+    if (q) {
+      const term = esc(String(q).toLowerCase().slice(0, 80));
+      where.push(`(lower(p.address) LIKE '%${term}%' OR lower(p.landlord) LIKE '%${term}%' OR lower(a.name) LIKE '%${term}%')`);
+    }
+    const rows = await env.DB.prepare(
+      `SELECT p.*, a.name AS client_name, a.email AS client_email
+         FROM property_applications p
+         LEFT JOIN applications a ON a.reference = p.reference
+        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+        ORDER BY COALESCE(p.updated_at, p.created_at) DESC LIMIT 300`
+    ).all();
+    const counts = await env.DB.prepare(
+      `SELECT status, COUNT(*) AS n FROM property_applications GROUP BY status`
+    ).all();
+    return { rows: rows.results ?? [], counts: counts.results ?? [] };
+  },
+
+  async propertySave(env, params, user) {
+    const STATUSES_P = ['shortlisted','applied','viewing_booked','viewed','offered','accepted','rejected','withdrawn','gone'];
+    const reference = String(params.reference || '');
+    if (!REF_RE.test(reference)) throw new Error('Pick a client first');
+    const address = String(params.address || '').trim().slice(0, 240);
+    if (address.length < 4) throw new Error('An address is required');
+    const status = STATUSES_P.includes(params.status) ? params.status : 'applied';
+
+    const cols = {
+      reference, address, status,
+      listing_url: String(params.listing_url || '').slice(0, 500),
+      rent: String(params.rent || '').slice(0, 60),
+      deposit: String(params.deposit || '').slice(0, 60),
+      available_from: String(params.available_from || '').slice(0, 60),
+      landlord: String(params.landlord || '').slice(0, 160),
+      landlord_email: String(params.landlord_email || '').slice(0, 254),
+      landlord_phone: String(params.landlord_phone || '').slice(0, 40),
+      applied_at: String(params.applied_at || '').slice(0, 40),
+      viewing_at: String(params.viewing_at || '').slice(0, 40),
+      decision_at: String(params.decision_at || '').slice(0, 40),
+      outcome_note: String(params.outcome_note || '').slice(0, 600),
+      notes: String(params.notes || '').slice(0, 2000),
+    };
+    const now = new Date().toISOString();
+
+    if (params.id) {
+      if (!/^[0-9a-f-]{36}$/.test(params.id)) throw new Error('Bad id');
+      const sets = Object.entries(cols).map(([k, v]) => `${k} = '${esc(v)}'`).join(', ');
+      await env.DB.prepare(
+        `UPDATE property_applications SET ${sets}, updated_at = ?1 WHERE id = ?2`
+      ).bind(now, params.id).run();
+      return { ok: true, id: params.id };
+    }
+
+    const id = crypto.randomUUID();
+    const keys = Object.keys(cols);
+    await env.DB.prepare(
+      `INSERT INTO property_applications (id, ${keys.join(', ')}, created_at, created_by, updated_at)
+       VALUES (?1, ${keys.map((_, i) => `?${i + 2}`).join(', ')}, ?${keys.length + 2}, ?${keys.length + 3}, ?${keys.length + 4})`
+    ).bind(id, ...keys.map((k) => cols[k]), now, user.email, now).run();
+    return { ok: true, id };
+  },
+
+  async propertyDelete(env, { id }, user) {
+    if (!/^[0-9a-f-]{36}$/.test(id || '')) throw new Error('Bad id');
+    await env.DB.prepare(`DELETE FROM property_applications WHERE id = ?1`).bind(id).run();
+    console.log(`[tracker] ${user.email} removed property application ${id}`);
+    return { ok: true };
+  },
+
+  /* A branded email to anybody, with files from our own bucket attached. The
+   * recipient may be a client or a typed address, because the common case is
+   * forwarding somebody's paperwork to a landlord. */
+  async sendCustom(env, params, user) {
+    const to = String(params.to || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(to)) throw new Error('That recipient address does not look right');
+    const heading = String(params.heading || '').slice(0, 160);
+    const body = String(params.body || '');
+    if (body.trim().length < 5) throw new Error('Write something in the body');
+
+    /* Attachments are chosen from documents we already hold, by id, rather than
+     * uploaded here. That keeps one storage path and one deletion path, and
+     * means nothing can be attached that was not already vetted on upload. */
+    const ids = (Array.isArray(params.attachmentIds) ? params.attachmentIds : [])
+      .filter((i) => /^[0-9a-f-]{36}$/.test(i)).slice(0, 5);
+
+    const attachments = [];
+    if (ids.length) {
+      if (!env.DOCS) throw new Error('Document storage is not configured');
+      for (const id of ids) {
+        const doc = await env.DB.prepare(
+          `SELECT r2_key, filename FROM documents WHERE id = ?1 AND deleted_at IS NULL`
+        ).bind(id).first();
+        if (!doc) continue;
+        const object = await env.DOCS.get(doc.r2_key);
+        if (!object) continue;
+        const buf = await object.arrayBuffer();
+        /* Resend caps a message at about 40MB; well under it is the sane place
+         * to stop, and a large attachment is a deliverability problem anyway. */
+        if (buf.byteLength > 8 * 1024 * 1024) {
+          throw new Error(`${doc.filename} is too large to attach. Send a link instead.`);
+        }
+        let binary = '';
+        const bytes = new Uint8Array(buf);
+        for (let i = 0; i < bytes.length; i += 8192) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        }
+        attachments.push({ filename: doc.filename, content: btoa(binary) });
+      }
+    }
+
+    const site = (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '');
+    const { subject, html, text } = customEmail({
+      heading, body, attachments,
+      ctaLabel: String(params.ctaLabel || '').slice(0, 60),
+      ctaUrl: params.ctaUrl,
+      siteUrl: site, supportEmail: env.NOTIFY_EMAIL || 'hello@fastkeyshousing.com',
+    });
+
+    await sendAndLog(env, {
+      reference: String(params.reference || 'ADHOC'), kind: 'custom', to,
+      subject, html, text, sentBy: user.email, attachments,
+      meta: { attachments: attachments.map((a) => a.filename), custom_recipient: !params.reference },
+    });
+    return { ok: true, sentTo: to, attached: attachments.length };
   },
 
   async remove(env, { reference, confirm }) {

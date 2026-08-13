@@ -740,6 +740,13 @@ textarea.pn-in{min-height:60px; resize:vertical}
 .pn-logkind{font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
   padding:2px 8px; border-radius:999px; background:rgba(224,163,94,.14); color:var(--key)}
 .pn-logkind.failed{background:rgba(240,169,169,.16); color:#F0A9A9}
+.pn-photos{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px}
+.pn-photo{margin:0; width:118px}
+.pn-photo img{width:118px; height:118px; object-fit:cover; border-radius:11px; display:block;
+  border:1px solid rgba(255,255,255,.12); background:rgba(0,0,0,.2)}
+.pn-photo figcaption{font-size:11.4px; color:rgba(237,239,242,.42); margin-top:5px;
+  word-break:break-all; line-height:1.4}
+.pn-photo .del{background:none; border:none; color:#F0A9A9; font-size:11.4px; cursor:pointer; padding:0}
 .pn-hint2{font-size:12.6px; color:rgba(237,239,242,.42); line-height:1.55; margin-top:7px}
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -799,6 +806,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <div class="pn-tabs">
           <button class="pn-tab on" data-view="clients">Clients</button>
           <button class="pn-tab" data-view="mail">Mail</button>
+          <button class="pn-tab" data-view="tracker">Properties</button>
         </div>
         <select id="pnKind" class="pn-in" style="width:auto">
           <option value="list">Applications</option>
@@ -816,6 +824,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <button class="pn-b gh" id="pnRefresh">Refresh</button>
         <button class="pn-b" id="pnRecon">Reconcile with Stripe</button>
         <button class="pn-b gh" id="pnNew">+ New</button>
+        <button class="pn-b" id="pnNewProp" style="display:none">+ Property</button>
       </div>
 
       <div class="pn-filters" id="pnFilters">
@@ -930,8 +939,19 @@ textarea.pn-in{min-height:60px; resize:vertical}
     $('#panelView').hidden = true;
     $('#loginView').hidden = false;
   }
+  /* Loaded once so the tracker's client picker is populated without a request
+     every time a form opens. */
+  function cacheClients(){
+    api('list', {sort: 'name'})
+      .then(function(d){
+        window.__clients = d.rows.map(function(r){ return {reference: r.reference, name: r.name}; });
+      })
+      .catch(function(){ window.__clients = []; });
+  }
+
   function showPanel(user){
     me = user;
+    cacheClients();
     document.body.classList.add('pn-active');
     $('#loginView').hidden = true;
     $('#panelView').hidden = false;
@@ -984,6 +1004,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
   /* ------------------------------------------------------------------ list */
   function load(){
     if(view === 'mail') return loadMail();
+    if(view === 'tracker') return loadTracker();
     selectedKind = $('#pnKind').value;
     $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
     api(selectedKind, {
@@ -1110,6 +1131,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
       '<div class="pn-sec"><h3>Documents</h3><div id="pnDocList"></div>' +
       '<div class="pn-inline">' +
       '<select id="pnDocKind" class="pn-in" style="flex:0 0 auto;width:auto">' +
+      '<option value="photo">Photo of the applicant</option>' +
       '<option value="passport">Passport / ID</option><option value="enrolment">Enrolment certificate</option>' +
       '<option value="payslip">Payslip</option><option value="contract">Employment contract</option>' +
       '<option value="bank">Bank statement</option><option value="guarantor">Guarantor documents</option>' +
@@ -1144,7 +1166,15 @@ textarea.pn-in{min-height:60px; resize:vertical}
           '<div class="pn-msg2" id="pnEditMsg"></div></div>'
         : '') +
 
-      (r.letter ? '<div class="pn-sec"><h3>Landlord letter</h3><pre class="pn-pre">' + esc(r.letter) + '</pre></div>' : '') +
+      (r.letter
+        ? '<div class="pn-sec">' +
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">' +
+          '<h3 style="margin:0">Landlord letter</h3>' +
+          '<button class="pn-cp" id="pnCopyLetter">Copy letter</button>' +
+          '<button class="pn-cp" id="pnCopyAll">Copy letter and details</button></div>' +
+          '<pre class="pn-pre" id="pnLetter">' + esc(r.letter) + '</pre>' +
+          '<div class="pn-msg2" id="pnCopyMsg"></div></div>'
+        : '') +
 
       (editable
         ? '<div class="pn-sec"><div class="pn-danger"><h4>Delete this application</h4>' +
@@ -1164,6 +1194,53 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
 
     loadDocs(r.reference);
+
+    /* Two copies because they serve different moments: the letter alone goes
+       into a landlord's contact form, and the letter plus the details goes into
+       an email where you want the numbers to hand as well. */
+    function copyBlock(text, btn){
+      (navigator.clipboard && window.isSecureContext
+        ? navigator.clipboard.writeText(text) : Promise.reject()
+      ).then(function(){
+        var was = btn.textContent;
+        btn.textContent = 'Copied'; btn.classList.add('done');
+        setTimeout(function(){ btn.textContent = was; btn.classList.remove('done'); }, 2200);
+      }).catch(function(){
+        note('#pnCopyMsg', 'Your browser blocked the clipboard. Select the text and copy it by hand.', false);
+      });
+    }
+
+    if($('#pnCopyLetter')) $('#pnCopyLetter').onclick = function(){
+      copyBlock(r.letter || '', this);
+    };
+
+    if($('#pnCopyAll')) $('#pnCopyAll').onclick = function(){
+      var money = function(n){ return n ? '\u20ac' + Number(n).toLocaleString('nl-NL') : null; };
+      var lines = [
+        r.letter || '',
+        '',
+        '--- applicant details ---',
+        'Reference:        ' + r.reference,
+        'Name:             ' + (a.name || r.name || ''),
+        'Email:            ' + (a.email || r.email || ''),
+        a.phone ?            'Phone:            ' + a.phone : null,
+        a.city ?             'Looking in:       ' + a.city : null,
+        a.employment ?       'Situation:        ' + [a.employment, a.role, a.organisation].filter(Boolean).join(' \u00b7 ') : null,
+        a.income ?           'Monthly income:   ' + money(a.income) : null,
+        a.budget ?           'Monthly budget:   ' + money(a.budget) : null,
+        a.savings ?          'Savings:          ' + money(a.savings) : null,
+        a.guarantor_income ? 'Guarantor income: ' + money(a.guarantor_income) : null,
+        (a.months_in_advance && a.months_in_advance !== '0')
+                           ? 'Rent in advance:  ' + a.months_in_advance + ' month(s)' : null,
+        a.household ?        'Household:        ' + (a.household === 'partner' ? 'With partner' : 'Single') : null,
+        a.available_from ?   'Available from:   ' + a.available_from : null,
+        a.duration ?         'Duration:         ' + a.duration : null,
+        a.personality ?      'Traits:           ' + (Array.isArray(a.personality) ? a.personality.join(', ') : a.personality) : null,
+        a.hobbies ?          'Hobbies:          ' + a.hobbies : null,
+        a.notes ?            'Notes:            ' + a.notes : null
+      ].filter(function(l){ return l !== null; });
+      copyBlock(lines.join('\n'), this);
+    };
 
     $('#pnCase').onclick = function(){
       var closing = !r.case_closed_at;
@@ -1259,6 +1336,220 @@ textarea.pn-in{min-height:60px; resize:vertical}
      A different question from the client view: not who they are, but what has
      been sent to them and when. So the rows are ticks and timestamps, and the
      pane is a send history plus the buttons that add to it. */
+  /* A branded email to anybody, with any of the files we already hold attached.
+     The recipient defaults to the selected client but can be typed, because the
+     common case is forwarding somebody's paperwork to a landlord. */
+  function customComposer(ref, client, after){
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">Custom email</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">Branded, and logged like every other send. ' +
+      'Attach anything already uploaded for this client.</p>' +
+      '<div class="pn-grid">' +
+      '<div class="wide"><label for="cu_to">To</label>' +
+        '<div class="pn-inline" style="margin-top:0">' +
+        '<select id="cu_pick" class="pn-in" style="flex:0 0 auto;width:auto">' +
+          '<option value="' + esc(client.email) + '">' + esc(client.name) + ' (' + esc(client.email) + ')</option>' +
+          '<option value="">Someone else\u2026</option></select>' +
+        '<input id="cu_to" class="pn-in" value="' + esc(client.email) + '"></div></div>' +
+      '<div class="wide"><label for="cu_heading">Heading</label>' +
+        '<input id="cu_heading" class="pn-in" placeholder="Your documents for Brusselsestraat 12"></div>' +
+      '<div class="wide"><label for="cu_body">Message</label>' +
+        '<textarea id="cu_body" class="pn-in" style="min-height:150px" placeholder="Blank lines start a new paragraph."></textarea></div>' +
+      '<div><label for="cu_ctal">Button label (optional)</label><input id="cu_ctal" class="pn-in" placeholder="View the listing"></div>' +
+      '<div><label for="cu_ctau">Button link (optional)</label><input id="cu_ctau" class="pn-in" placeholder="https://..."></div>' +
+      '<div class="wide"><label>Attach</label><div id="cu_files" class="pn-hint2">Loading files\u2026</div></div>' +
+      '</div>' +
+      '<div class="pn-acts"><button class="pn-b" id="cuSend">Send it</button>' +
+      '<button class="pn-b gh" id="cuCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="cuMsg"></div>';
+    $('#pnModal').classList.add('open');
+    $('#cuCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+    $('#cu_pick').onchange = function(){
+      $('#cu_to').value = this.value;
+      if(!this.value) $('#cu_to').focus();
+    };
+
+    fetch('/api/panel/document?reference=' + encodeURIComponent(ref), {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var box = $('#cu_files');
+        if(!d.files || !d.files.length){ box.textContent = 'Nothing uploaded for this client yet.'; return; }
+        box.innerHTML = d.files.map(function(f){
+          var kb = f.size_bytes < 1048576 ? Math.round(f.size_bytes/1024) + ' KB'
+                                          : (f.size_bytes/1048576).toFixed(1) + ' MB';
+          return '<label style="display:flex;gap:9px;align-items:center;padding:5px 0;cursor:pointer">' +
+            '<input type="checkbox" class="cu_att" value="' + esc(f.id) + '" style="width:auto">' +
+            '<span style="color:var(--chalk);font-size:13.6px">' + esc(f.filename) + '</span>' +
+            '<span style="color:rgba(237,239,242,.4);font-size:12.3px">' + kb + '</span></label>';
+        }).join('');
+      })
+      .catch(function(){ $('#cu_files').textContent = 'Could not load the files.'; });
+
+    $('#cuSend').onclick = function(){
+      var btn = $('#cuSend');
+      btn.disabled = true; btn.textContent = 'Sending\u2026';
+      var ids = Array.prototype.map.call(document.querySelectorAll('.cu_att:checked'), function(c){ return c.value; });
+      api('sendCustom', {
+        reference: ref, to: $('#cu_to').value.trim(),
+        heading: $('#cu_heading').value.trim(), body: $('#cu_body').value,
+        ctaLabel: $('#cu_ctal').value.trim(), ctaUrl: $('#cu_ctau').value.trim(),
+        attachmentIds: ids
+      }, 'POST').then(function(res){
+        $('#pnModal').classList.remove('open');
+        note('#mMsg', 'Sent to ' + res.sentTo + (res.attached ? ' with ' + res.attached + ' attachment(s).' : '.'), true);
+        if(after) after();
+      }).catch(function(e){
+        btn.disabled = false; btn.textContent = 'Send it';
+        note('#cuMsg', e.message, false);
+      });
+    };
+  }
+
+  /* ------------------------------------------------------- property tracker */
+  var PROP_STATUS = ['shortlisted','applied','viewing_booked','viewed','offered','accepted','rejected','withdrawn','gone'];
+  var propRows = [];
+
+  function loadTracker(){
+    $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
+    api('properties', {q: $('#pnQ').value.trim()})
+      .then(function(d){
+        propRows = d.rows;
+        var counts = d.counts || [];
+        var live = counts.filter(function(c){ return ['applied','viewing_booked','viewed','offered'].indexOf(c.status) !== -1; })
+                         .reduce(function(s,c){ return s + c.n; }, 0);
+        var won = (counts.filter(function(c){ return c.status === 'accepted'; })[0] || {n:0}).n;
+        $('#pnStats').innerHTML = '<span><b>' + d.rows.length + '</b> tracked</span>' +
+          '<span><b>' + live + '</b> in play</span>' +
+          (won ? '<span><b>' + won + '</b> accepted</span>' : '');
+
+        if(!d.rows.length){
+          $('#pnList').innerHTML = '<div class="pn-empty"><div>Nothing tracked yet.<br>' +
+            'Press <b>+ Property</b> to record one you applied to.</div></div>';
+          return;
+        }
+        $('#pnList').innerHTML = d.rows.map(function(r){
+          return '<div class="pn-r" data-id="' + esc(r.id) + '">' +
+            '<span class="nm">' + esc(r.address) + '</span>' +
+            '<span class="pn-pill ' + esc(r.status) + '">' + esc(r.status.replace(/_/g,' ')) + '</span>' +
+            '<span class="rf">' + esc(r.client_name || r.reference) + '</span>' +
+            '<span class="mt">' + [r.rent, r.landlord, r.applied_at && ('applied ' + r.applied_at)]
+              .filter(Boolean).map(esc).join(' \u00b7 ') + '</span></div>';
+        }).join('');
+        Array.prototype.forEach.call(document.querySelectorAll('.pn-r'), function(el){
+          el.addEventListener('click', function(){ openProperty(el.dataset.id); });
+        });
+      })
+      .catch(function(e){ $('#pnList').innerHTML = '<div class="pn-empty">' + esc(e.message) + '</div>'; });
+  }
+
+  function propertyForm(r){
+    var f = r || {};
+    var field = function(id, label, val, ph, wide){
+      return '<div' + (wide ? ' class="wide"' : '') + '><label for="tp_' + id + '">' + label + '</label>' +
+        '<input id="tp_' + id + '" class="pn-in" value="' + esc(val || '') + '" placeholder="' + esc(ph || '') + '"></div>';
+    };
+    return '<div class="pn-grid">' +
+      '<div class="wide"><label for="tp_reference">Applied for which client</label>' +
+        '<select id="tp_reference" class="pn-in">' +
+        (f.reference ? '' : '<option value="">Choose a client\u2026</option>') +
+        clientOptions(f.reference) + '</select></div>' +
+      field('address', 'Address', f.address, 'Brusselsestraat 12, Maastricht', true) +
+      field('listing_url', 'Listing link', f.listing_url, 'https://...', true) +
+      field('rent', 'Rent', f.rent, '\u20ac950 incl.') +
+      field('deposit', 'Deposit', f.deposit, '\u20ac950') +
+      field('available_from', 'Available from', f.available_from, '1 September') +
+      '<div><label for="tp_status">Status</label><select id="tp_status" class="pn-in">' +
+        PROP_STATUS.map(function(s){
+          return '<option value="' + s + '"' + (f.status === s ? ' selected' : '') + '>' + s.replace(/_/g,' ') + '</option>';
+        }).join('') + '</select></div>' +
+      field('landlord', 'Landlord or agency', f.landlord) +
+      field('landlord_email', 'Their email', f.landlord_email) +
+      field('landlord_phone', 'Their phone', f.landlord_phone) +
+      field('applied_at', 'Applied on', f.applied_at, '11 Aug') +
+      field('viewing_at', 'Viewing on', f.viewing_at, '14 Aug, 17:30') +
+      field('decision_at', 'Decision on', f.decision_at) +
+      '<div class="wide"><label for="tp_outcome_note">Outcome</label>' +
+        '<input id="tp_outcome_note" class="pn-in" value="' + esc(f.outcome_note || '') + '" placeholder="Landlord went with someone with a Dutch guarantor"></div>' +
+      '<div class="wide"><label for="tp_notes">Notes</label>' +
+        '<textarea id="tp_notes" class="pn-in" style="min-height:90px">' + esc(f.notes || '') + '</textarea></div>' +
+      '</div>';
+  }
+
+  function clientOptions(selected){
+    return (window.__clients || []).map(function(c){
+      return '<option value="' + esc(c.reference) + '"' + (c.reference === selected ? ' selected' : '') + '>' +
+        esc(c.name) + ' (' + esc(c.reference) + ')</option>';
+    }).join('');
+  }
+
+  function collectProperty(id){
+    var v = function(k){ var e = $('#tp_' + k); return e ? e.value.trim() : ''; };
+    return {
+      id: id || undefined, reference: v('reference'), address: v('address'),
+      listing_url: v('listing_url'), rent: v('rent'), deposit: v('deposit'),
+      available_from: v('available_from'), status: v('status'), landlord: v('landlord'),
+      landlord_email: v('landlord_email'), landlord_phone: v('landlord_phone'),
+      applied_at: v('applied_at'), viewing_at: v('viewing_at'), decision_at: v('decision_at'),
+      outcome_note: v('outcome_note'), notes: v('notes')
+    };
+  }
+
+  function openProperty(id){
+    var r = propRows.filter(function(x){ return x.id === id; })[0];
+    if(!r) return;
+    selected = id;
+    Array.prototype.forEach.call(document.querySelectorAll('.pn-r'), function(el){
+      el.classList.toggle('sel', el.dataset.id === id);
+    });
+    $('#pnPane').classList.add('open');
+    $('#pnPane').innerHTML =
+      '<h2 class="pn-h2">' + esc(r.address) + '</h2>' +
+      '<p class="pn-hint2" style="margin-top:6px">For ' + esc(r.client_name || r.reference) +
+      ' \u00b7 added by ' + esc(r.created_by) + ' \u00b7 ' + esc(when(r.created_at)) + '</p>' +
+      (r.listing_url ? '<p style="margin-top:8px"><a href="' + esc(r.listing_url) +
+        '" target="_blank" rel="noopener" style="color:var(--key);font-size:14.5px">Open the listing &rarr;</a></p>' : '') +
+      '<div class="pn-sec"><h3>Details</h3>' + propertyForm(r) +
+      '<div class="pn-acts"><button class="pn-b" id="tpSave">Save</button>' +
+      (isOwner() ? '<button class="pn-b rd" id="tpDel">Delete</button>' : '') + '</div>' +
+      '<div class="pn-msg2" id="tpMsg"></div></div>';
+
+    $('#tpSave').onclick = function(){
+      api('propertySave', collectProperty(id), 'POST')
+        .then(function(){ note('#tpMsg', 'Saved.', true); loadTracker(); })
+        .catch(function(e){ note('#tpMsg', e.message, false); });
+    };
+    if($('#tpDel')) $('#tpDel').onclick = function(){
+      if(!confirm('Remove this property from the tracker?')) return;
+      api('propertyDelete', {id: id}, 'POST').then(function(){
+        selected = null;
+        $('#pnPane').innerHTML = '<div class="pn-empty">Removed.</div>';
+        loadTracker();
+      }).catch(function(e){ note('#tpMsg', e.message, false); });
+    };
+  }
+
+  function newProperty(){
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">Track a property</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">One row per property per client, so ' +
+      '"have we already applied to this one for them" has an answer.</p>' +
+      propertyForm(null) +
+      '<div class="pn-acts"><button class="pn-b" id="tpNewGo">Add it</button>' +
+      '<button class="pn-b gh" id="tpNewCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="tpNewMsg"></div>';
+    $('#pnModal').classList.add('open');
+    $('#tpNewCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+    $('#tpNewGo').onclick = function(){
+      api('propertySave', collectProperty(null), 'POST')
+        .then(function(res){
+          $('#pnModal').classList.remove('open');
+          loadTracker();
+          setTimeout(function(){ openProperty(res.id); }, 500);
+        })
+        .catch(function(e){ note('#tpNewMsg', e.message, false); });
+    };
+  }
+
   function loadMail(){
     $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
     api('emails', {q: $('#pnQ').value.trim()})
@@ -1314,6 +1605,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
       '<button class="pn-b gh" id="mSendReminder"' + (r.status === 'paid' ? ' disabled' : '') + '>' +
         'Payment reminder</button>' +
       '<button class="pn-b gh" id="mSendProperty">Send a property</button>' +
+      '<button class="pn-b gh" id="mSendCustom">Custom email</button>' +
       '</div>' +
       (r.status !== 'paid'
         ? '<p class="pn-hint2">Unpaid, so the receipt is unavailable. The reminder links back to a ' +
@@ -1333,6 +1625,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
       send('remind', {reference: ref}, this, refresh, true);
     };
     $('#mSendProperty').onclick = function(){ propertyComposer(ref, r, refresh); };
+    $('#mSendCustom').onclick = function(){ customComposer(ref, r, refresh); };
   }
 
   function send(route, params, btn, after, mayRepeat){
@@ -1486,7 +1779,23 @@ textarea.pn-in{min-height:60px; resize:vertical}
           list.innerHTML = '<p class="pn-hint2" style="margin:0">Nothing uploaded yet.</p>';
           return;
         }
-        list.innerHTML = d.files.map(function(f){
+        /* Photos are shown as thumbnails and paperwork as a list. A face is
+           useless as a filename and a payslip is useless as a thumbnail. */
+        var photos = d.files.filter(function(f){ return f.kind === 'photo' || /^image\//.test(f.content_type || ''); });
+        var papers = d.files.filter(function(f){ return photos.indexOf(f) === -1; });
+
+        var photoHtml = photos.length
+          ? '<div class="pn-photos">' + photos.map(function(f){
+              return '<figure class="pn-photo">' +
+                '<a href="/api/panel/document?id=' + esc(f.id) + '&inline=1" target="_blank" rel="noopener">' +
+                '<img src="/api/panel/document?id=' + esc(f.id) + '&inline=1" alt="' + esc(f.filename) + '" loading="lazy">' +
+                '</a><figcaption>' + esc(f.filename) +
+                (isOwner() ? ' <button class="del" data-id="' + esc(f.id) + '" data-n="' + esc(f.filename) + '">delete</button>' : '') +
+                '</figcaption></figure>';
+            }).join('') + '</div>'
+          : '';
+
+        list.innerHTML = photoHtml + papers.map(function(f){
           var kb = f.size_bytes < 1048576 ? Math.round(f.size_bytes/1024) + ' KB'
                                           : (f.size_bytes/1048576).toFixed(1) + ' MB';
           return '<div class="pn-doc">' +
@@ -1595,6 +1904,8 @@ textarea.pn-in{min-height:60px; resize:vertical}
   ['#pnBMin','#pnBMax'].forEach(function(s){
     $(s).addEventListener('input', function(){ clearTimeout(t); t = setTimeout(load, 450); });
   });
+  $('#pnNewProp').addEventListener('click', newProperty);
+
   $('#pnClear').addEventListener('click', function(){
     $('#pnQ').value = ''; $('#pnStatus').value = 'all'; $('#pnSort').value = 'recent';
     $('#pnClosed').value = 'all'; $('#pnDocs').value = 'all';
@@ -1610,15 +1921,18 @@ textarea.pn-in{min-height:60px; resize:vertical}
       Array.prototype.forEach.call(document.querySelectorAll('.pn-tab'), function(x){
         x.classList.toggle('on', x === tab);
       });
-      var mail = view === 'mail';
-      $('#pnKind').style.display = mail ? 'none' : '';
-      $('#pnStatus').style.display = mail ? 'none' : '';
-      $('#pnFilters').style.display = mail ? 'none' : '';
-      if($('#pnRecon')) $('#pnRecon').style.display = (mail || !isOwner()) ? 'none' : '';
-      if($('#pnNew')) $('#pnNew').style.display = (mail || !isOwner()) ? 'none' : '';
+      var clients = view === 'clients';
+      var tracker = view === 'tracker';
+      $('#pnKind').style.display = clients ? '' : 'none';
+      $('#pnStatus').style.display = clients ? '' : 'none';
+      $('#pnFilters').style.display = clients ? '' : 'none';
+      if($('#pnRecon')) $('#pnRecon').style.display = (clients && isOwner()) ? '' : 'none';
+      if($('#pnNew')) $('#pnNew').style.display = (clients && isOwner()) ? '' : 'none';
+      if($('#pnNewProp')) $('#pnNewProp').style.display = tracker ? '' : 'none';
       selected = null;
       $('#pnPane').innerHTML = '<div class="pn-empty"><div>' +
-        (mail ? 'Select somebody to see what has been sent to them.' : 'Select an entry.') + '</div></div>';
+        (view === 'mail' ? 'Select somebody to see what has been sent to them.'
+         : tracker ? 'Select a property, or add one.' : 'Select an entry.') + '</div></div>';
       load();
     });
   });
