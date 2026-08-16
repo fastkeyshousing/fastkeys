@@ -52,7 +52,9 @@ export async function onRequestPost({ request, env }) {
     return fail(502, 'storage_failed', String(err));
   }
 
-  const src = `/api/listing-image?key=${encodeURIComponent(key)}`;
+  /* A plain path rather than a query string. Email proxies mangle
+   * percent-encoded slashes in query strings; a URL ending in .jpg survives. */
+  const src = `/photo/${id}/${key.slice(key.lastIndexOf('/') + 1)}`;
 
   /* Appended in a single statement rather than read, modify, write.
    *

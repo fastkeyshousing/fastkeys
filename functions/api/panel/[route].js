@@ -735,9 +735,19 @@ const routes = {
      * public page and useless in an email: a mail client has no origin to
      * resolve them against, and safeUrl rejects them outright, so every photo
      * was silently dropped. Absolute URLs on our own domain fix both. */
-    images = images.map((src) =>
-      String(src).startsWith('/') ? `${(env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '')}${src}` : src
-    );
+    const base = (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '');
+    images = images.map((raw) => {
+      let src = String(raw);
+      /* Photos uploaded before the clean-path route still carry the old query
+       * form. Rewritten here so an email never has to use it. */
+      const legacy = src.match(/^\/api\/listing-image\?key=(.+)$/);
+      if (legacy) {
+        const key = decodeURIComponent(legacy[1]);           // listings/<id>/<file>
+        const bits = key.split('/');
+        if (bits.length === 3) src = `/photo/${bits[1]}/${bits[2]}`;
+      }
+      return src.startsWith('/') ? `${base}${src}` : src;
+    });
 
     const site = (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '');
     /* The lister's details are deliberately absent. They are not on the public
@@ -749,7 +759,7 @@ const routes = {
       recipientName: application.name || client.name,
       reference: client.reference,
       headline: listing.title,
-      intro: 'This one came onto our noticeboard and looks like it fits what you asked for. Have a look at the photos below.',
+      intro: 'Check out our new listing below. Have a look at the photos and the numbers, then reply to this email if you are interested and we will take it from there.',
       images, listingUrl: `${site}/listings/${listing.slug}`,
       address: listing.address, rent: listing.rent, deposit: listing.deposit,
       available: listing.available_from, size: listing.size, rooms: listing.rooms,
