@@ -807,6 +807,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
           <button class="pn-tab on" data-view="clients">Clients</button>
           <button class="pn-tab" data-view="mail">Mail</button>
           <button class="pn-tab" data-view="tracker">Properties</button>
+          <button class="pn-tab" data-view="listings">Noticeboard</button>
         </div>
         <select id="pnKind" class="pn-in" style="width:auto">
           <option value="list">Applications</option>
@@ -825,6 +826,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <button class="pn-b" id="pnRecon">Reconcile with Stripe</button>
         <button class="pn-b gh" id="pnNew">+ New</button>
         <button class="pn-b" id="pnNewProp" style="display:none">+ Property</button>
+        <button class="pn-b" id="pnNewListing" style="display:none">+ Listing</button>
       </div>
 
       <div class="pn-filters" id="pnFilters">
@@ -1005,6 +1007,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
   function load(){
     if(view === 'mail') return loadMail();
     if(view === 'tracker') return loadTracker();
+    if(view === 'listings') return loadListings();
     selectedKind = $('#pnKind').value;
     $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
     api(selectedKind, {
@@ -1550,6 +1553,181 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
   }
 
+  /* ------------------------------------------------------------ noticeboard
+     Public listings. Only the owner may create or publish, because a listing
+     that names a landlord is the one thing on this site with legal weight: it
+     must stay a noticeboard where the lister is contacted directly, never our
+     own stock, or the tenant-paid fee becomes unlawful. */
+  var listingRows = [];
+  var L_STATUS = ['draft','published','taken','expired'];
+
+  function loadListings(){
+    $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
+    api('listings', {q: $('#pnQ').value.trim()})
+      .then(function(d){
+        listingRows = d.rows;
+        var pub = (d.counts.filter(function(c){ return c.status === 'published'; })[0] || {n:0}).n;
+        $('#pnStats').innerHTML = '<span><b>' + d.rows.length + '</b> total</span>' +
+          '<span><b>' + pub + '</b> live</span>';
+        if(!d.rows.length){
+          $('#pnList').innerHTML = '<div class="pn-empty"><div>Nothing on the board yet.<br>' +
+            (isOwner() ? 'Press <b>+ Listing</b> to add one.' : 'Only the owner can add listings.') +
+            '</div></div>';
+          return;
+        }
+        $('#pnList').innerHTML = d.rows.map(function(l){
+          return '<div class="pn-r' + (l.status !== 'published' ? ' closed' : '') +
+            '" data-id="' + esc(l.id) + '">' +
+            '<span class="nm">' + esc(l.title) + '</span>' +
+            '<span class="pn-pill ' + esc(l.status) + '">' + esc(l.status) + '</span>' +
+            '<span class="rf">' + esc(l.address) + '</span>' +
+            '<span class="mt">' + [l.rent, l.contact_name, 'by ' + l.submitted_by]
+              .filter(Boolean).map(esc).join(' \u00b7 ') + '</span></div>';
+        }).join('');
+        Array.prototype.forEach.call(document.querySelectorAll('.pn-r'), function(el){
+          el.addEventListener('click', function(){ openListing(el.dataset.id); });
+        });
+      })
+      .catch(function(e){ $('#pnList').innerHTML = '<div class="pn-empty">' + esc(e.message) + '</div>'; });
+  }
+
+  function listingFields(l){
+    var f = l || {};
+    var images = [];
+    try { images = JSON.parse(f.images || '[]'); } catch(x){}
+    var fld = function(id, label, val, ph, wide){
+      return '<div' + (wide ? ' class="wide"' : '') + '><label for="ls_' + id + '">' + label + '</label>' +
+        '<input id="ls_' + id + '" class="pn-in" value="' + esc(val || '') + '" placeholder="' + esc(ph || '') + '"></div>';
+    };
+    return '<div class="pn-grid">' +
+      fld('title', 'Title', f.title, 'Bright studio near the Vrijthof', true) +
+      fld('address', 'Address', f.address, 'Brusselsestraat 12', true) +
+      fld('city', 'City', f.city || 'Maastricht') +
+      fld('rent', 'Rent', f.rent, '\u20ac950 incl.') +
+      fld('deposit', 'Deposit', f.deposit) +
+      fld('available_from', 'Available from', f.available_from, '1 September') +
+      fld('size', 'Size', f.size, '32 m\u00b2') +
+      fld('rooms', 'Rooms', f.rooms, 'Studio') +
+      fld('furnished', 'Furnished', f.furnished) +
+      fld('registration', 'Registration possible', f.registration, 'Yes') +
+      '<div><label for="ls_submitted_by">Listed by</label><select id="ls_submitted_by" class="pn-in">' +
+        ['landlord','student','agency'].map(function(s){
+          return '<option value="' + s + '"' + (f.submitted_by === s ? ' selected' : '') + '>' + s + '</option>';
+        }).join('') + '</select></div>' +
+      '<div><label for="ls_status">Status</label><select id="ls_status" class="pn-in">' +
+        L_STATUS.map(function(s){
+          return '<option value="' + s + '"' + ((f.status || 'draft') === s ? ' selected' : '') + '>' + s + '</option>';
+        }).join('') + '</select></div>' +
+      fld('contact_name', 'Lister\u2019s name', f.contact_name, 'Van der Berg Vastgoed') +
+      fld('contact_email', 'Lister\u2019s email', f.contact_email) +
+      fld('contact_phone', 'Lister\u2019s phone', f.contact_phone) +
+      fld('external_url', 'Their own listing link', f.external_url, 'https://...', true) +
+      '<div class="wide"><label for="ls_images">Image links, one per line</label>' +
+        '<textarea id="ls_images" class="pn-in">' + esc(images.join('\n')) + '</textarea></div>' +
+      '<div class="wide"><label for="ls_description">Description</label>' +
+        '<textarea id="ls_description" class="pn-in" style="min-height:110px">' + esc(f.description || '') + '</textarea></div>' +
+      '</div>' +
+      '<p class="pn-hint2">The lister\u2019s own contact details are shown publicly and are required. ' +
+      'That is what keeps this a noticeboard rather than our own stock. Never accept payment ' +
+      'from anyone to appear here.</p>';
+  }
+
+  function collectListing(id){
+    var v = function(k){ var e = $('#ls_' + k); return e ? e.value.trim() : ''; };
+    return {
+      id: id || undefined, title: v('title'), address: v('address'), city: v('city'),
+      rent: v('rent'), deposit: v('deposit'), available_from: v('available_from'),
+      size: v('size'), rooms: v('rooms'), furnished: v('furnished'),
+      registration: v('registration'), submitted_by: v('submitted_by'), status: v('status'),
+      contact_name: v('contact_name'), contact_email: v('contact_email'),
+      contact_phone: v('contact_phone'), external_url: v('external_url'),
+      description: v('description'),
+      images: v('images').split(/\s+/).filter(Boolean)
+    };
+  }
+
+  function listingForm(l){
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">' + (l ? 'Edit listing' : 'Add a listing') + '</h3>' +
+      listingFields(l) +
+      '<div class="pn-acts"><button class="pn-b" id="lsGo">' + (l ? 'Save' : 'Add it') + '</button>' +
+      '<button class="pn-b gh" id="lsCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="lsMsg"></div>';
+    $('#pnModal').classList.add('open');
+    $('#lsCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+    $('#lsGo').onclick = function(){
+      api('listingSave', collectListing(l && l.id), 'POST')
+        .then(function(res){
+          $('#pnModal').classList.remove('open');
+          loadListings();
+          if(res.id) setTimeout(function(){ openListing(res.id); }, 500);
+        })
+        .catch(function(e){ note('#lsMsg', e.message, false); });
+    };
+  }
+
+  function openListing(id){
+    var l = listingRows.filter(function(x){ return x.id === id; })[0];
+    if(!l) return;
+    selected = id;
+    Array.prototype.forEach.call(document.querySelectorAll('.pn-r'), function(el){
+      el.classList.toggle('sel', el.dataset.id === id);
+    });
+    $('#pnPane').classList.add('open');
+    var images = [];
+    try { images = JSON.parse(l.images || '[]'); } catch(x){}
+
+    $('#pnPane').innerHTML =
+      '<h2 class="pn-h2">' + esc(l.title) + '</h2>' +
+      '<div class="pn-refbig"><span class="pn-pill ' + esc(l.status) + '">' + esc(l.status) + '</span>' +
+      (l.status === 'published'
+        ? '<a class="pn-cp" href="/listings/' + esc(l.slug) + '" target="_blank" rel="noopener">View it live</a>'
+        : '<span class="pn-hint2" style="margin:0">Not public until you set it to published</span>') +
+      '</div>' +
+      (images.length ? '<div class="pn-photos">' + images.slice(0,6).map(function(src){
+        return '<figure class="pn-photo"><img src="' + esc(src) + '" alt="" loading="lazy"></figure>';
+      }).join('') + '</div>' : '') +
+      '<div class="pn-sec"><h3>Details</h3><table class="pn-t">' +
+      row('Address', l.address + ', ' + l.city) + row('Rent', l.rent) + row('Deposit', l.deposit) +
+      row('Available from', l.available_from) + row('Size', l.size) + row('Rooms', l.rooms) +
+      row('Registration', l.registration) + row('Listed by', l.submitted_by) +
+      row('Contact', [l.contact_name, l.contact_email, l.contact_phone].filter(Boolean).join(' \u00b7 ')) +
+      '</table></div>' +
+
+      '<div class="pn-sec"><h3>Share with a client</h3>' +
+      (l.status === 'published'
+        ? '<div class="pn-inline"><select id="lsClient" class="pn-in">' + clientOptions(null) + '</select>' +
+          '<button class="pn-b" id="lsShare">Send it</button></div>' +
+          '<p class="pn-hint2">Sends the branded property email with the photos and the lister\u2019s ' +
+          'own contact details, and logs it against that client.</p>'
+        : '<p class="pn-hint2" style="margin-top:0">Publish it first.</p>') +
+      '<div class="pn-msg2" id="lsShareMsg"></div></div>' +
+
+      (isOwner()
+        ? '<div class="pn-sec"><div class="pn-acts">' +
+          '<button class="pn-b gh" id="lsEdit">Edit</button>' +
+          '<button class="pn-b rd" id="lsDel">Delete</button></div></div>'
+        : '');
+
+    if($('#lsShare')) $('#lsShare').onclick = function(){
+      var btn = $('#lsShare');
+      btn.disabled = true; btn.textContent = 'Sending\u2026';
+      api('shareListing', {id: id, reference: $('#lsClient').value}, 'POST')
+        .then(function(res){ note('#lsShareMsg', 'Sent to ' + res.sentTo + '.', true); })
+        .catch(function(e){ note('#lsShareMsg', e.message, false); })
+        .then(function(){ btn.disabled = false; btn.textContent = 'Send it'; });
+    };
+    if($('#lsEdit')) $('#lsEdit').onclick = function(){ listingForm(l); };
+    if($('#lsDel')) $('#lsDel').onclick = function(){
+      if(!confirm('Delete "' + l.title + '" from the board?')) return;
+      api('listingDelete', {id: id}, 'POST').then(function(){
+        selected = null;
+        $('#pnPane').innerHTML = '<div class="pn-empty">Deleted.</div>';
+        loadListings();
+      });
+    };
+  }
+
   function loadMail(){
     $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
     api('emails', {q: $('#pnQ').value.trim()})
@@ -1905,6 +2083,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
     $(s).addEventListener('input', function(){ clearTimeout(t); t = setTimeout(load, 450); });
   });
   $('#pnNewProp').addEventListener('click', newProperty);
+  $('#pnNewListing').addEventListener('click', function(){ listingForm(null); });
 
   $('#pnClear').addEventListener('click', function(){
     $('#pnQ').value = ''; $('#pnStatus').value = 'all'; $('#pnSort').value = 'recent';
@@ -1929,6 +2108,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
       if($('#pnRecon')) $('#pnRecon').style.display = (clients && isOwner()) ? '' : 'none';
       if($('#pnNew')) $('#pnNew').style.display = (clients && isOwner()) ? '' : 'none';
       if($('#pnNewProp')) $('#pnNewProp').style.display = tracker ? '' : 'none';
+      if($('#pnNewListing')) $('#pnNewListing').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
       selected = null;
       $('#pnPane').innerHTML = '<div class="pn-empty"><div>' +
         (view === 'mail' ? 'Select somebody to see what has been sent to them.'

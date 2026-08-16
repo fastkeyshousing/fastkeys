@@ -13,6 +13,10 @@
 /viewing-failed.html /viewing-failed 301
 /panel.html /panel 301
 /blog.html /blog 301
+# Pages strips .html and 308s to the clean URL, so the rewrite must target
+# /listing, not /listing.html, or the rewrite is immediately redirected away.
+/listings/:slug /listing 200
+/listings.html /listings 301
 /blog/:slug.html /blog/:slug 301
 
 # Anything shared while the site lived under the old GitHub Pages path.

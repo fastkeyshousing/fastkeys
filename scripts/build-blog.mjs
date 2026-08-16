@@ -202,7 +202,7 @@ writeFileSync(new URL('../public/blog.html', import.meta.url), page({
 }));
 
 /* --------------------------------------------------------- sitemap and feed */
-const staticPages = ['/', '/nl', '/apply', '/viewings', '/bezichtigingen', '/book-viewing', '/blog', '/terms'];
+const staticPages = ['/', '/nl', '/apply', '/viewings', '/bezichtigingen', '/book-viewing', '/blog', '/listings', '/terms'];
 writeFileSync(new URL('../public/sitemap.xml', import.meta.url),
 `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemap.org/schemas/sitemap/0.9">

@@ -27,7 +27,10 @@ const STATUSES = ['pending', 'paid', 'expired', 'failed'];
 /* Staff read the pipeline and handle documents. Anything that changes a record,
  * creates one, or removes one stays with the owner: a viewing schedule is
  * day-to-day work, an applicant's income figure is not. */
-const OWNER_ONLY = new Set(['update', 'remove', 'create', 'updateEmail', 'reconcile']);
+const OWNER_ONLY = new Set(['update', 'remove', 'create', 'updateEmail', 'reconcile',
+  /* Publishing to the public site is an owner decision: a listing that names a
+   * landlord is the one artefact on this site with legal consequences. */
+  'listingSave', 'listingDelete']);
 const EMAIL_KINDS = ['confirmation', 'receipt', 'reminder', 'property', 'custom'];
 
 const esc = (s) => String(s).replace(/'/g, "''");
@@ -595,6 +598,152 @@ const routes = {
       meta: { attachments: attachments.map((a) => a.filename), custom_recipient: !params.reference },
     });
     return { ok: true, sentTo: to, attached: attachments.length };
+  },
+
+  /* ------------------------------------------------------------- listings */
+  async listings(env, { status, q }) {
+    const where = [];
+    if (status && status !== 'all') where.push(`status = '${esc(status)}'`);
+    if (q) {
+      const term = esc(String(q).toLowerCase().slice(0, 80));
+      where.push(`(lower(title) LIKE '%${term}%' OR lower(address) LIKE '%${term}%' OR lower(contact_name) LIKE '%${term}%')`);
+    }
+    const rows = await env.DB.prepare(
+      `SELECT * FROM listings ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+        ORDER BY COALESCE(published_at, created_at) DESC LIMIT 200`
+    ).all();
+    const counts = await env.DB.prepare(
+      `SELECT status, COUNT(*) AS n FROM listings GROUP BY status`
+    ).all();
+    return { rows: rows.results ?? [], counts: counts.results ?? [] };
+  },
+
+  async listingSave(env, params, user) {
+    const L_STATUS = ['draft', 'published', 'taken', 'expired'];
+    const title = String(params.title || '').trim().slice(0, 160);
+    const address = String(params.address || '').trim().slice(0, 240);
+    if (title.length < 4) throw new Error('Give it a title');
+    if (address.length < 4) throw new Error('An address is required');
+
+    /* A lister who cannot be contacted directly turns this back into an agency
+     * window, which is the thing the whole design avoids. */
+    const contactEmail = String(params.contact_email || '').trim().toLowerCase();
+    const contactPhone = String(params.contact_phone || '').trim();
+    if (!contactEmail && !contactPhone && !params.external_url) {
+      throw new Error('A listing needs the lister\'s own email, phone or link, so readers can contact them directly');
+    }
+    if (contactEmail && !EMAIL_RE.test(contactEmail)) throw new Error('That contact email does not look right');
+
+    const status = L_STATUS.includes(params.status) ? params.status : 'draft';
+    const images = (Array.isArray(params.images) ? params.images : [])
+      .map((i) => String(i).trim()).filter(Boolean).slice(0, 8);
+
+    const slugFrom = (s) => String(s).toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'listing';
+
+    const cols = {
+      title, address,
+      city: String(params.city || 'Maastricht').slice(0, 60),
+      rent: String(params.rent || '').slice(0, 60),
+      deposit: String(params.deposit || '').slice(0, 60),
+      available_from: String(params.available_from || '').slice(0, 60),
+      size: String(params.size || '').slice(0, 60),
+      rooms: String(params.rooms || '').slice(0, 60),
+      furnished: String(params.furnished || '').slice(0, 60),
+      registration: String(params.registration || '').slice(0, 60),
+      description: String(params.description || '').slice(0, 4000),
+      images: JSON.stringify(images),
+      submitted_by: ['landlord', 'student', 'agency'].includes(params.submitted_by) ? params.submitted_by : 'landlord',
+      contact_name: String(params.contact_name || '').slice(0, 160),
+      contact_email: contactEmail,
+      contact_phone: contactPhone.slice(0, 40),
+      external_url: String(params.external_url || '').slice(0, 500),
+      expires_at: String(params.expires_at || '').slice(0, 40),
+      status,
+    };
+    const now = new Date().toISOString();
+
+    if (params.id) {
+      if (!/^[0-9a-f-]{36}$/.test(params.id)) throw new Error('Bad id');
+      const sets = Object.entries(cols).map(([k, v]) => `${k} = '${esc(v)}'`).join(', ');
+      await env.DB.prepare(
+        `UPDATE listings SET ${sets}, updated_at = ?1,
+            published_at = CASE WHEN '${status}' = 'published' AND published_at IS NULL THEN ?1 ELSE published_at END
+          WHERE id = ?2`
+      ).bind(now, params.id).run();
+      return { ok: true, id: params.id };
+    }
+
+    /* A collision only happens when two listings share a title and a street, so
+     * a short random tail is cheaper than a lookup loop. */
+    const tail = Math.random().toString(36).slice(2, 6);
+    const slug = `${slugFrom(title)}-${tail}`;
+    const id = crypto.randomUUID();
+    const keys = Object.keys(cols);
+    await env.DB.prepare(
+      `INSERT INTO listings (id, slug, ${keys.join(', ')}, published_at, created_at, created_by, updated_at)
+       VALUES (?1, ?2, ${keys.map((_, i) => `?${i + 3}`).join(', ')}, ?${keys.length + 3}, ?${keys.length + 4}, ?${keys.length + 5}, ?${keys.length + 6})`
+    ).bind(id, slug, ...keys.map((k) => cols[k]), status === 'published' ? now : null, now, user.email, now).run();
+    return { ok: true, id, slug };
+  },
+
+  async listingDelete(env, { id }, user) {
+    if (!/^[0-9a-f-]{36}$/.test(id || '')) throw new Error('Bad id');
+    await env.DB.prepare(`DELETE FROM listings WHERE id = ?1`).bind(id).run();
+    console.log(`[listings] ${user.email} deleted listing ${id}`);
+    return { ok: true };
+  },
+
+  /* Sends a published listing to one client, reusing the branded property
+   * email. The listing's own contact details go in the body, so the client
+   * deals with the lister directly. */
+  async shareListing(env, { id, reference }, user) {
+    if (!/^[0-9a-f-]{36}$/.test(id || '')) throw new Error('Bad id');
+    if (!REF_RE.test(reference || '')) throw new Error('Pick a client');
+
+    const listing = await env.DB.prepare(`SELECT * FROM listings WHERE id = ?1`).bind(id).first();
+    if (!listing) throw new Error('No such listing');
+    if (listing.status !== 'published') throw new Error('Publish it before sharing it');
+
+    const client = await env.DB.prepare(
+      `SELECT reference, name, email, payload FROM applications WHERE reference = ?1`
+    ).bind(reference).first();
+    if (!client) throw new Error('No application with that reference');
+
+    let application = {};
+    try { application = JSON.parse(client.payload); } catch { /* columns will do */ }
+    const to = application.email || client.email;
+
+    let images = [];
+    try { images = JSON.parse(listing.images || '[]'); } catch { /* none */ }
+
+    const site = (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '');
+    const contactLines = [
+      listing.contact_name ? `Listed by: ${listing.contact_name}` : null,
+      listing.contact_email ? `Their email: ${listing.contact_email}` : null,
+      listing.contact_phone ? `Their phone: ${listing.contact_phone}` : null,
+    ].filter(Boolean).join('\n');
+
+    const { subject, html, text } = propertyEmail({
+      recipientName: application.name || client.name,
+      reference: client.reference,
+      headline: listing.title,
+      intro: 'This one is on our noticeboard. It was listed by the person below, and you can contact them directly. Tell us if you want us to apply on your behalf.',
+      images, listingUrl: `${site}/listings/${listing.slug}`,
+      address: listing.address, rent: listing.rent, deposit: listing.deposit,
+      available: listing.available_from, size: listing.size, rooms: listing.rooms,
+      furnished: listing.furnished, registration: listing.registration,
+      bodyText: [listing.description, contactLines].filter(Boolean).join('\n\n'),
+      siteUrl: site, supportEmail: env.NOTIFY_EMAIL || 'hello@fastkeyshousing.com',
+    });
+
+    await sendAndLog(env, {
+      reference: client.reference, kind: 'property', to, subject, html, text,
+      sentBy: user.email,
+      meta: { listing: listing.slug, address: listing.address, from_noticeboard: true },
+    });
+    return { ok: true, sentTo: to };
   },
 
   async remove(env, { reference, confirm }) {
