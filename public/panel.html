@@ -1656,6 +1656,66 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
   }
 
+  /* Shrinks an image in the browser before it is uploaded.
+     A phone photo is routinely 12 megapixels and 5 to 15 MB, while a listing
+     photo only ever displays at around 1200px wide. Downscaling here means the
+     size limit stops being something anyone has to think about, a batch of
+     twenty uploads in seconds rather than minutes, and R2 stores a fraction as
+     much. Falls back to the original file if anything goes wrong, so a browser
+     that cannot do this still uploads something. */
+  function shrinkImage(file){
+    /* Tried in order until one fits. A real photo clears the first attempt; the
+       later steps exist for the occasional enormous one rather than as the
+       normal path. */
+    var STEPS = [[2000, 0.85], [1800, 0.75], [1400, 0.7], [1100, 0.65]];
+    var LIMIT = 7.5 * 1024 * 1024;   // just under the server's 8 MB
+
+    return new Promise(function(resolve){
+      if(file.type === 'image/gif') return resolve(file);      // may be animated
+      if(file.size <= 1.5 * 1024 * 1024) return resolve(file); // already small
+
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+
+      img.onload = function(){
+        var w = img.naturalWidth, h = img.naturalHeight;
+        if(!w || !h){ URL.revokeObjectURL(url); return resolve(file); }
+
+        var attempt = function(i){
+          if(i >= STEPS.length){ URL.revokeObjectURL(url); return resolve(file); }
+          var maxEdge = STEPS[i][0], quality = STEPS[i][1];
+          var scale = Math.min(1, maxEdge / Math.max(w, h));
+          try {
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(w * scale));
+            canvas.height = Math.max(1, Math.round(h * scale));
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob(function(blob){
+              if(!blob) { URL.revokeObjectURL(url); return resolve(file); }
+              if(blob.size > LIMIT && i < STEPS.length - 1) return attempt(i + 1);
+              URL.revokeObjectURL(url);
+              if(blob.size >= file.size) return resolve(file);
+              var name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+              try {
+                resolve(new File([blob], name, {type: 'image/jpeg'}));
+              } catch(e) {
+                resolve(blob);
+              }
+            }, 'image/jpeg', quality);
+          } catch(e){
+            URL.revokeObjectURL(url);
+            resolve(file);
+          }
+        };
+        attempt(0);
+      };
+
+      img.onerror = function(){ URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+
   /* Shared by the listing pane and the edit form. */
   function wireUpload(l){
     var btn = document.querySelector('#ls_upload');
@@ -1664,33 +1724,60 @@ textarea.pn-in{min-height:60px; resize:vertical}
       var input = document.querySelector('#ls_file');
       var files = Array.prototype.slice.call((input && input.files) || []);
       if(!files.length) return note('#ls_upmsg', 'Choose one or more images first.', false);
-      btn.disabled = true; btn.textContent = 'Uploading\u2026';
-      var done = 0, failed = 0, total = files.length;
-      var next = function(){
-        if(!files.length){
-          btn.disabled = false; btn.textContent = 'Upload';
-          note('#ls_upmsg', done + ' of ' + total + ' uploaded' +
-            (failed ? ', ' + failed + ' failed' : '') + '.', !failed);
-          if(input) input.value = '';
-          loadListings();
-          return;
+      btn.disabled = true;
+      var done = 0, total = files.length, problems = [];
+
+      var finish = function(){
+        btn.disabled = false; btn.textContent = 'Upload';
+        if(input) input.value = '';
+        /* Every failure is named. The previous version counted them silently,
+           which is how a dozen uploads could quietly become eight. */
+        if(problems.length){
+          note('#ls_upmsg', done + ' of ' + total + ' uploaded. Could not upload: ' +
+            problems.join('; '), false);
+        } else {
+          note('#ls_upmsg', 'All ' + done + ' uploaded.', true);
         }
+        loadListings();
+      };
+
+      var next = function(){
+        if(!files.length) return finish();
+        var index = total - files.length + 1;
         var file = files.shift();
-        if(file.size > 8 * 1024 * 1024){ failed++; return next(); }
-        fetch('/api/panel/listing-upload?id=' + encodeURIComponent(l.id), {
-          method:'POST', credentials:'same-origin',
-          headers:{'Content-Type': file.type || 'application/octet-stream'}, body: file
-        }).then(function(r){ return r.json().catch(function(){ return {}; })
-            .then(function(b){ return {ok:r.ok, b:b}; }); })
-          .then(function(res){
-            if(res.ok && res.b.src){
-              done++;
-              var g = document.querySelector('#ls_gallery');
-              if(g) g.insertAdjacentHTML('beforeend',
-                '<figure class="pn-photo"><img src="' + esc(res.b.src) + '" alt=""></figure>');
-            } else { failed++; }
-            next();
-          }).catch(function(){ failed++; next(); });
+        btn.textContent = 'Uploading ' + index + '/' + total + '\u2026';
+
+        shrinkImage(file).then(function(ready){
+          if(ready.size > 8 * 1024 * 1024){
+            problems.push(file.name + ' (' + (ready.size / 1024 / 1024).toFixed(1) +
+              ' MB, still too large after resizing)');
+            return next();
+          }
+          return fetch('/api/panel/listing-upload?id=' + encodeURIComponent(l.id), {
+            method:'POST', credentials:'same-origin',
+            headers:{'Content-Type': ready.type || 'application/octet-stream'}, body: ready
+          }).then(function(r){ return r.json().catch(function(){ return {}; })
+              .then(function(b){ return {ok:r.ok, b:b, status:r.status}; }); })
+            .then(function(res){
+              if(res.ok && res.b.src){
+                done++;
+                var g = document.querySelector('#ls_gallery');
+                if(g) g.insertAdjacentHTML('beforeend',
+                  '<figure class="pn-photo"><img src="' + esc(res.b.src) + '" alt=""></figure>');
+              } else {
+                var why = {
+                  too_large: 'too large', unsupported_type: 'not an accepted image type',
+                  not_permitted: 'only the owner may upload', bad_id: 'listing not found',
+                  not_configured: 'storage is not configured on this deployment'
+                }[res.b.error] || (res.b.error || ('HTTP ' + res.status));
+                problems.push(file.name + ' (' + why + ')');
+              }
+              next();
+            });
+        }).catch(function(err){
+          problems.push(file.name + ' (' + (err && err.message ? err.message : 'upload failed') + ')');
+          next();
+        });
       };
       next();
     };
@@ -1708,38 +1795,6 @@ textarea.pn-in{min-height:60px; resize:vertical}
     /* Uploads go straight to R2 and are appended to the listing server-side, so
        a photo cannot be lost by closing the form before saving. */
     wireUpload(l);
-    if(false) $('#ls_upload').onclick = function(){
-      var files = Array.prototype.slice.call($('#ls_file').files || []);
-      if(!files.length) return note('#ls_upmsg', 'Choose one or more images first.', false);
-      var btn = $('#ls_upload');
-      btn.disabled = true; btn.textContent = 'Uploading\u2026';
-      var done = 0, failed = 0;
-      var next = function(){
-        if(!files.length){
-          btn.disabled = false; btn.textContent = 'Upload';
-          note('#ls_upmsg', done + ' uploaded' + (failed ? ', ' + failed + ' failed' : '') + '.', !failed);
-          $('#ls_file').value = '';
-          loadListings();
-          return;
-        }
-        var file = files.shift();
-        if(file.size > 8 * 1024 * 1024){ failed++; return next(); }
-        fetch('/api/panel/listing-upload?id=' + encodeURIComponent(l.id), {
-          method:'POST', credentials:'same-origin',
-          headers:{'Content-Type': file.type || 'application/octet-stream'}, body: file
-        }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(b){ return {ok:r.ok,b:b}; }); })
-          .then(function(res){
-            if(res.ok && res.b.src){
-              done++;
-              var g = $('#ls_gallery');
-              if(g) g.insertAdjacentHTML('beforeend',
-                '<figure class="pn-photo"><img src="' + esc(res.b.src) + '" alt=""></figure>');
-            } else { failed++; }
-            next();
-          }).catch(function(){ failed++; next(); });
-      };
-      next();
-    };
 
     $('#lsGo').onclick = function(){
       api('listingSave', collectListing(l && l.id), 'POST')
@@ -1781,8 +1836,9 @@ textarea.pn-in{min-height:60px; resize:vertical}
         ? '<div class="pn-inline"><input type="file" id="ls_file" class="pn-in" ' +
           'accept="image/jpeg,image/png,image/webp,image/gif" multiple>' +
           '<button class="pn-b" id="ls_upload">Upload</button></div>' +
-          '<p class="pn-hint2">JPEG, PNG, WebP or GIF, up to 8 MB each. They go live on the ' +
-          'public page as soon as they finish uploading.</p>'
+          '<p class="pn-hint2">JPEG, PNG, WebP or GIF. Large photos straight off a phone are ' +
+          'fine: they are resized in your browser before uploading. Select as many as you ' +
+          'like, up to 30 per listing. They go live as soon as they finish.</p>'
         : '') +
       '<div class="pn-msg2" id="ls_upmsg"></div></div>' +
       '<div class="pn-sec"><h3>Details</h3><table class="pn-t">' +
