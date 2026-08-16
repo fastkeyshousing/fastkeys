@@ -1630,7 +1630,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
             '<div class="pn-inline"><input type="file" id="ls_file" class="pn-in" accept="image/jpeg,image/png,image/webp,image/gif" multiple>' +
             '<button type="button" class="pn-b" id="ls_upload">Upload</button></div>' +
             '<div class="pn-msg2" id="ls_upmsg"></div>'
-          : '<p class="pn-hint2" style="margin-top:0">Save the listing first, then photos can be uploaded to it.</p>') +
+          : '<p class="pn-hint2" style="margin-top:0">Add it first, then upload photos from the listing&rsquo;s own page. It opens straight after you press Add.</p>') +
         '</div>' +
       '<div class="wide"><label for="ls_images">Image links (optional, one per line)</label>' +
         '<textarea id="ls_images" class="pn-in">' + esc(images.join('\n')) + '</textarea></div>' +
@@ -1656,6 +1656,46 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
   }
 
+  /* Shared by the listing pane and the edit form. */
+  function wireUpload(l){
+    var btn = document.querySelector('#ls_upload');
+    if(!btn || !l || !l.id) return;
+    btn.onclick = function(){
+      var input = document.querySelector('#ls_file');
+      var files = Array.prototype.slice.call((input && input.files) || []);
+      if(!files.length) return note('#ls_upmsg', 'Choose one or more images first.', false);
+      btn.disabled = true; btn.textContent = 'Uploading\u2026';
+      var done = 0, failed = 0, total = files.length;
+      var next = function(){
+        if(!files.length){
+          btn.disabled = false; btn.textContent = 'Upload';
+          note('#ls_upmsg', done + ' of ' + total + ' uploaded' +
+            (failed ? ', ' + failed + ' failed' : '') + '.', !failed);
+          if(input) input.value = '';
+          loadListings();
+          return;
+        }
+        var file = files.shift();
+        if(file.size > 8 * 1024 * 1024){ failed++; return next(); }
+        fetch('/api/panel/listing-upload?id=' + encodeURIComponent(l.id), {
+          method:'POST', credentials:'same-origin',
+          headers:{'Content-Type': file.type || 'application/octet-stream'}, body: file
+        }).then(function(r){ return r.json().catch(function(){ return {}; })
+            .then(function(b){ return {ok:r.ok, b:b}; }); })
+          .then(function(res){
+            if(res.ok && res.b.src){
+              done++;
+              var g = document.querySelector('#ls_gallery');
+              if(g) g.insertAdjacentHTML('beforeend',
+                '<figure class="pn-photo"><img src="' + esc(res.b.src) + '" alt=""></figure>');
+            } else { failed++; }
+            next();
+          }).catch(function(){ failed++; next(); });
+      };
+      next();
+    };
+  }
+
   function listingForm(l){
     $('#pnModalBox').innerHTML =
       '<h3 style="font-size:17px;margin-bottom:6px">' + (l ? 'Edit listing' : 'Add a listing') + '</h3>' +
@@ -1667,7 +1707,8 @@ textarea.pn-in{min-height:60px; resize:vertical}
     $('#lsCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
     /* Uploads go straight to R2 and are appended to the listing server-side, so
        a photo cannot be lost by closing the form before saving. */
-    if($('#ls_upload')) $('#ls_upload').onclick = function(){
+    wireUpload(l);
+    if(false) $('#ls_upload').onclick = function(){
       var files = Array.prototype.slice.call($('#ls_file').files || []);
       if(!files.length) return note('#ls_upmsg', 'Choose one or more images first.', false);
       var btn = $('#ls_upload');
@@ -1729,9 +1770,21 @@ textarea.pn-in{min-height:60px; resize:vertical}
         ? '<a class="pn-cp" href="/listings/' + esc(l.slug) + '" target="_blank" rel="noopener">View it live</a>'
         : '<span class="pn-hint2" style="margin:0">Not public until you set it to published</span>') +
       '</div>' +
-      (images.length ? '<div class="pn-photos">' + images.slice(0,6).map(function(src){
-        return '<figure class="pn-photo"><img src="' + esc(src) + '" alt="" loading="lazy"></figure>';
-      }).join('') + '</div>' : '') +
+      '<div class="pn-sec"><h3>Photos</h3>' +
+      '<div class="pn-photos" id="ls_gallery">' + images.map(function(src, i){
+        return '<figure class="pn-photo"><img src="' + esc(src) + '" alt="" loading="lazy">' +
+          (isOwner() ? '<figcaption><button class="del" data-i="' + i + '">remove</button></figcaption>' : '') +
+          '</figure>';
+      }).join('') + '</div>' +
+      (images.length ? '' : '<p class="pn-hint2" style="margin-top:0">No photos yet.</p>') +
+      (isOwner()
+        ? '<div class="pn-inline"><input type="file" id="ls_file" class="pn-in" ' +
+          'accept="image/jpeg,image/png,image/webp,image/gif" multiple>' +
+          '<button class="pn-b" id="ls_upload">Upload</button></div>' +
+          '<p class="pn-hint2">JPEG, PNG, WebP or GIF, up to 8 MB each. They go live on the ' +
+          'public page as soon as they finish uploading.</p>'
+        : '') +
+      '<div class="pn-msg2" id="ls_upmsg"></div></div>' +
       '<div class="pn-sec"><h3>Details</h3><table class="pn-t">' +
       row('Address', l.address + ', ' + l.city) + row('Rent', l.rent) + row('Deposit', l.deposit) +
       row('Available from', l.available_from) + row('Size', l.size) + row('Rooms', l.rooms) +
@@ -1766,6 +1819,26 @@ textarea.pn-in{min-height:60px; resize:vertical}
           '<button class="pn-b gh" id="lsEdit">Edit</button>' +
           '<button class="pn-b rd" id="lsDel">Delete</button></div></div>'
         : '');
+
+    wireUpload(l);
+
+    /* Removal rewrites the array. The object stays in R2, which is the cheaper
+       mistake if the wrong one is removed. */
+    Array.prototype.forEach.call(document.querySelectorAll('#ls_gallery button.del'), function(btn){
+      btn.addEventListener('click', function(){
+        if(!confirm('Remove this photo from the listing?')) return;
+        var keep = images.filter(function(_, i){ return i !== Number(btn.dataset.i); });
+        api('listingSave', {id: l.id, title: l.title, address: l.address, city: l.city,
+          rent: l.rent, deposit: l.deposit, available_from: l.available_from, size: l.size,
+          rooms: l.rooms, furnished: l.furnished, registration: l.registration,
+          submitted_by: l.submitted_by, status: l.status, contact_name: l.contact_name,
+          contact_email: l.contact_email, contact_phone: l.contact_phone,
+          external_url: l.external_url, description: l.description,
+          images: keep, replaceImages: true}, 'POST')
+          .then(function(){ loadListings(); setTimeout(function(){ openListing(l.id); }, 400); })
+          .catch(function(e){ note('#ls_upmsg', e.message, false); });
+      });
+    });
 
     if($('#lsShare')) $('#lsShare').onclick = function(){
       var btn = $('#lsShare');

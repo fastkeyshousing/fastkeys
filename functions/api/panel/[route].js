@@ -638,7 +638,10 @@ const routes = {
      * "delete the photos I just uploaded". */
     let images = (Array.isArray(params.images) ? params.images : [])
       .map((i) => String(i).trim()).filter(Boolean);
-    if (params.id) {
+    /* replaceImages is set only by the remove-photo button, which sends the exact
+     * list it wants kept. Everywhere else the uploaded photos are merged back in,
+     * because an empty link textarea means "no extra links", not "delete them". */
+    if (params.id && !params.replaceImages) {
       const existing = await env.DB.prepare(`SELECT images FROM listings WHERE id = ?1`)
         .bind(params.id).first();
       let uploaded = [];
