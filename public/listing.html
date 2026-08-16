@@ -720,26 +720,23 @@ button{font:inherit; color:inherit}
       var desc = (l.description || '').split(/\n{2,}/).filter(Boolean)
         .map(function(p){ return '<p>' + esc(p).replace(/\n/g,'<br>') + '</p>'; }).join('');
 
-      var contact = [];
-      if(l.contact_name) contact.push('<p>' + esc(l.contact_name) + '</p>');
-      if(l.contact_email) contact.push('<p><a href="mailto:' + esc(l.contact_email) + '">' + esc(l.contact_email) + '</a></p>');
-      if(l.contact_phone) contact.push('<p><a href="tel:' + esc(l.contact_phone.replace(/[^+\d]/g,'')) + '">' + esc(l.contact_phone) + '</a></p>');
-      if(l.external_url) contact.push('<p><a href="' + esc(l.external_url) + '" target="_blank" rel="noopener nofollow">Their own listing &rarr;</a></p>');
-
       box.innerHTML =
         '<h1>' + esc(l.title) + '</h1>' +
         '<p class="ls-addr" style="font-size:15.5px">' + esc(l.address) + ', ' + esc(l.city) + '</p>' +
         gal +
         (facts ? '<table class="ls-table">' + facts + '</table>' : '') +
         (desc ? '<div class="ls-desc">' + desc + '</div>' : '') +
-        '<div class="ls-contact"><h3>Contact ' + esc(BY[l.submitted_by] || 'the lister') + ' directly</h3>' +
-        (contact.length ? contact.join('') : '<p>No contact details were provided.</p>') +
-        '<p style="margin-top:12px;font-size:14px;color:rgba(237,239,242,.6)">' +
-        'FastKeys takes no payment from whoever listed this and earns nothing if you rent it. ' +
-        'Arrange viewings and the contract with them.</p></div>' +
-        '<p class="ls-help">Would you rather we handled it? We can apply on your behalf, ' +
-        'read the contract before you sign, and keep looking if this one goes. ' +
-        '<a href="/apply" style="color:var(--key);font-weight:600">Start your application &rarr;</a></p>';
+        '<div class="ls-contact"><h3>Interested in this one?</h3>' +
+        '<p>Tell us and we will put your application in front of whoever is letting it, ' +
+        'arrange the viewing, and read the contract before you sign anything.</p>' +
+        '<p style="margin-top:14px">' +
+        '<a class="btn btn-key" href="/apply?listing=' + encodeURIComponent(l.slug) + '">' +
+        'Start your application <span class="arw">&rarr;</span></a></p>' +
+        '<p style="margin-top:14px;font-size:14px;color:rgba(237,239,242,.62)">' +
+        'Already a client? Reply to any of our emails with the address and we will get on it today.</p>' +
+        '</div>' +
+        '<p class="ls-help">Places in Maastricht move within days, so a quick word beats a considered one. ' +
+        'If this one has gone by the time you ask, we keep looking at no extra cost.</p>';
     })
     .catch(function(){
       document.querySelector('#lsOne').innerHTML =

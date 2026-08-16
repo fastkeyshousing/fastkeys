@@ -27,13 +27,11 @@ function publicView(row) {
     registration: row.registration,
     description: row.description,
     images,
-    /* Shown deliberately. A reader contacting the lister directly is what makes
-     * this a noticeboard rather than an agency window. */
     submitted_by: row.submitted_by,
-    contact_name: row.contact_name,
-    contact_email: row.contact_email,
-    contact_phone: row.contact_phone,
-    external_url: row.external_url,
+    /* Contact details and the lister's own link are held in the database but
+     * deliberately not returned here. Enquiries come to FastKeys, who is acting
+     * on the searcher's instruction, and the details are visible only in the
+     * panel. Anything added to this object is public, so add carefully. */
     published_at: row.published_at,
   };
 }

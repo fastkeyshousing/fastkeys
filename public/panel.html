@@ -1622,14 +1622,24 @@ textarea.pn-in{min-height:60px; resize:vertical}
       fld('contact_email', 'Lister\u2019s email', f.contact_email) +
       fld('contact_phone', 'Lister\u2019s phone', f.contact_phone) +
       fld('external_url', 'Their own listing link', f.external_url, 'https://...', true) +
-      '<div class="wide"><label for="ls_images">Image links, one per line</label>' +
+      '<div class="wide"><label>Photos</label>' +
+        (f.id
+          ? '<div class="pn-photos" id="ls_gallery">' + images.map(function(src){
+              return '<figure class="pn-photo"><img src="' + esc(src) + '" alt="" loading="lazy"></figure>';
+            }).join('') + '</div>' +
+            '<div class="pn-inline"><input type="file" id="ls_file" class="pn-in" accept="image/jpeg,image/png,image/webp,image/gif" multiple>' +
+            '<button type="button" class="pn-b" id="ls_upload">Upload</button></div>' +
+            '<div class="pn-msg2" id="ls_upmsg"></div>'
+          : '<p class="pn-hint2" style="margin-top:0">Save the listing first, then photos can be uploaded to it.</p>') +
+        '</div>' +
+      '<div class="wide"><label for="ls_images">Image links (optional, one per line)</label>' +
         '<textarea id="ls_images" class="pn-in">' + esc(images.join('\n')) + '</textarea></div>' +
       '<div class="wide"><label for="ls_description">Description</label>' +
         '<textarea id="ls_description" class="pn-in" style="min-height:110px">' + esc(f.description || '') + '</textarea></div>' +
       '</div>' +
-      '<p class="pn-hint2">The lister\u2019s own contact details are shown publicly and are required. ' +
-      'That is what keeps this a noticeboard rather than our own stock. Never accept payment ' +
-      'from anyone to appear here.</p>';
+      '<p class="pn-hint2">Contact details are optional and are <b>never shown publicly</b>. ' +
+      'They are here so you can reach whoever listed it once a client says yes. ' +
+      'Do not pay anyone to appear on the board.</p>';
   }
 
   function collectListing(id){
@@ -1655,6 +1665,41 @@ textarea.pn-in{min-height:60px; resize:vertical}
       '<div class="pn-msg2" id="lsMsg"></div>';
     $('#pnModal').classList.add('open');
     $('#lsCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+    /* Uploads go straight to R2 and are appended to the listing server-side, so
+       a photo cannot be lost by closing the form before saving. */
+    if($('#ls_upload')) $('#ls_upload').onclick = function(){
+      var files = Array.prototype.slice.call($('#ls_file').files || []);
+      if(!files.length) return note('#ls_upmsg', 'Choose one or more images first.', false);
+      var btn = $('#ls_upload');
+      btn.disabled = true; btn.textContent = 'Uploading\u2026';
+      var done = 0, failed = 0;
+      var next = function(){
+        if(!files.length){
+          btn.disabled = false; btn.textContent = 'Upload';
+          note('#ls_upmsg', done + ' uploaded' + (failed ? ', ' + failed + ' failed' : '') + '.', !failed);
+          $('#ls_file').value = '';
+          loadListings();
+          return;
+        }
+        var file = files.shift();
+        if(file.size > 8 * 1024 * 1024){ failed++; return next(); }
+        fetch('/api/panel/listing-upload?id=' + encodeURIComponent(l.id), {
+          method:'POST', credentials:'same-origin',
+          headers:{'Content-Type': file.type || 'application/octet-stream'}, body: file
+        }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(b){ return {ok:r.ok,b:b}; }); })
+          .then(function(res){
+            if(res.ok && res.b.src){
+              done++;
+              var g = $('#ls_gallery');
+              if(g) g.insertAdjacentHTML('beforeend',
+                '<figure class="pn-photo"><img src="' + esc(res.b.src) + '" alt=""></figure>');
+            } else { failed++; }
+            next();
+          }).catch(function(){ failed++; next(); });
+      };
+      next();
+    };
+
     $('#lsGo').onclick = function(){
       api('listingSave', collectListing(l && l.id), 'POST')
         .then(function(res){
@@ -1691,7 +1736,20 @@ textarea.pn-in{min-height:60px; resize:vertical}
       row('Address', l.address + ', ' + l.city) + row('Rent', l.rent) + row('Deposit', l.deposit) +
       row('Available from', l.available_from) + row('Size', l.size) + row('Rooms', l.rooms) +
       row('Registration', l.registration) + row('Listed by', l.submitted_by) +
-      row('Contact', [l.contact_name, l.contact_email, l.contact_phone].filter(Boolean).join(' \u00b7 ')) +
+      '</table></div>' +
+
+      /* Held privately. Not on the public page, so this is the only place it
+         exists once the email that carried it is buried. */
+      '<div class="pn-sec"><h3>Who listed it &mdash; not public</h3><table class="pn-t">' +
+      (l.contact_name || l.contact_email || l.contact_phone || l.external_url
+        ? row('Name', l.contact_name) +
+          (l.contact_email ? '<tr><td>Email</td><td><a href="mailto:' + esc(l.contact_email) +
+            '" style="color:var(--key)">' + esc(l.contact_email) + '</a></td></tr>' : '') +
+          (l.contact_phone ? '<tr><td>Phone</td><td><a href="tel:' + esc(String(l.contact_phone).replace(/[^+\d]/g,'')) +
+            '" style="color:var(--key)">' + esc(l.contact_phone) + '</a></td></tr>' : '') +
+          (l.external_url ? '<tr><td>Their listing</td><td><a href="' + esc(l.external_url) +
+            '" target="_blank" rel="noopener" style="color:var(--key)">open</a></td></tr>' : '')
+        : '<tr><td colspan="2" style="color:rgba(237,239,242,.42)">Nothing recorded. Add it while you still have the email.</td></tr>') +
       '</table></div>' +
 
       '<div class="pn-sec"><h3>Share with a client</h3>' +

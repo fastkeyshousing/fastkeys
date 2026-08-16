@@ -625,18 +625,28 @@ const routes = {
     if (title.length < 4) throw new Error('Give it a title');
     if (address.length < 4) throw new Error('An address is required');
 
-    /* A lister who cannot be contacted directly turns this back into an agency
-     * window, which is the thing the whole design avoids. */
+    /* Optional, and never published. Held for your own use: when a client says
+     * yes you still need to reach whoever listed it, and keeping it here means
+     * that is one click rather than a search through old email. */
     const contactEmail = String(params.contact_email || '').trim().toLowerCase();
     const contactPhone = String(params.contact_phone || '').trim();
-    if (!contactEmail && !contactPhone && !params.external_url) {
-      throw new Error('A listing needs the lister\'s own email, phone or link, so readers can contact them directly');
-    }
     if (contactEmail && !EMAIL_RE.test(contactEmail)) throw new Error('That contact email does not look right');
 
     const status = L_STATUS.includes(params.status) ? params.status : 'draft';
-    const images = (Array.isArray(params.images) ? params.images : [])
-      .map((i) => String(i).trim()).filter(Boolean).slice(0, 8);
+    /* Uploaded photos are appended by the upload route, not by this form. If the
+     * link textarea is empty on an edit, that means "no extra links", not
+     * "delete the photos I just uploaded". */
+    let images = (Array.isArray(params.images) ? params.images : [])
+      .map((i) => String(i).trim()).filter(Boolean);
+    if (params.id) {
+      const existing = await env.DB.prepare(`SELECT images FROM listings WHERE id = ?1`)
+        .bind(params.id).first();
+      let uploaded = [];
+      try { uploaded = JSON.parse(existing?.images || '[]'); } catch { uploaded = []; }
+      const fromUpload = uploaded.filter((u) => String(u).startsWith('/api/listing-image'));
+      images = [...fromUpload, ...images.filter((i) => !i.startsWith('/api/listing-image'))];
+    }
+    images = images.slice(0, 8);
 
     const slugFrom = (s) => String(s).toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
