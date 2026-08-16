@@ -731,23 +731,30 @@ const routes = {
     let images = [];
     try { images = JSON.parse(listing.images || '[]'); } catch { /* none */ }
 
+    /* Uploaded photos are stored as site-relative paths, which is right for the
+     * public page and useless in an email: a mail client has no origin to
+     * resolve them against, and safeUrl rejects them outright, so every photo
+     * was silently dropped. Absolute URLs on our own domain fix both. */
+    images = images.map((src) =>
+      String(src).startsWith('/') ? `${(env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '')}${src}` : src
+    );
+
     const site = (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '');
-    const contactLines = [
-      listing.contact_name ? `Listed by: ${listing.contact_name}` : null,
-      listing.contact_email ? `Their email: ${listing.contact_email}` : null,
-      listing.contact_phone ? `Their phone: ${listing.contact_phone}` : null,
-    ].filter(Boolean).join('\n');
+    /* The lister's details are deliberately absent. They are not on the public
+     * page either, and putting them in an email is worse: a forwarded message
+     * carries them anywhere. Enquiries come to us, which is the whole point of
+     * the arrangement. */
 
     const { subject, html, text } = propertyEmail({
       recipientName: application.name || client.name,
       reference: client.reference,
       headline: listing.title,
-      intro: 'This one is on our noticeboard. It was listed by the person below, and you can contact them directly. Tell us if you want us to apply on your behalf.',
+      intro: 'This one came onto our noticeboard and looks like it fits what you asked for. Have a look at the photos below.',
       images, listingUrl: `${site}/listings/${listing.slug}`,
       address: listing.address, rent: listing.rent, deposit: listing.deposit,
       available: listing.available_from, size: listing.size, rooms: listing.rooms,
       furnished: listing.furnished, registration: listing.registration,
-      bodyText: [listing.description, contactLines].filter(Boolean).join('\n\n'),
+      bodyText: listing.description || '',
       siteUrl: site, supportEmail: env.NOTIFY_EMAIL || 'hello@fastkeyshousing.com',
     });
 
