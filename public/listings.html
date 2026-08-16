@@ -595,7 +595,10 @@ button{font:inherit; color:inherit}
   border:1px solid rgba(224,163,94,.4)}
 .ls-contact h3{font-family:var(--display); font-size:21px; font-weight:500; color:#fff; margin-bottom:8px}
 .ls-contact p{font-size:15px; line-height:1.65; color:rgba(237,239,242,.8); margin-bottom:6px}
-.ls-contact a{color:var(--key); font-weight:600}
+/* :not(.btn) matters: without it this rule outranks .btn-key on specificity
+   and repaints the button text gold on a gold background, ratio 1.0. */
+.ls-contact a:not(.btn){color:var(--key); font-weight:600}
+.ls-contact a.btn-key{color:#2A2116}
 .ls-help{margin-top:20px; font-size:14.4px; line-height:1.7; color:rgba(237,239,242,.6)}
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
