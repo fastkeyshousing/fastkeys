@@ -54,19 +54,40 @@ export async function onRequestPost({ request, env }) {
 
   const src = `/api/listing-image?key=${encodeURIComponent(key)}`;
 
-  /* Appended to the listing straight away, so an upload cannot be lost by
-   * somebody closing the form before saving. */
+  /* Appended in a single statement rather than read, modify, write.
+   *
+   * The previous version did SELECT images, push, UPDATE. On local SQLite that is
+   * effectively instantaneous and always correct. On production D1 there is real
+   * latency between the two, and uploads arrive back to back: two requests can
+   * both read the same array and the second UPDATE then overwrites the first,
+   * so a batch of fifteen photos silently becomes eight. Classic lost update,
+   * and invisible in local testing because the window is too small to hit.
+   *
+   * json_insert with '$[#]' appends to the end of a JSON array inside the UPDATE
+   * itself, so there is no window at all. The CASE keeps the thirty cap without
+   * needing to read the row first. */
   try {
-    const row = await env.DB.prepare(`SELECT images FROM listings WHERE id = ?1`).bind(id).first();
-    if (row) {
-      let images = [];
-      try { images = JSON.parse(row.images || '[]'); } catch { images = []; }
-      images.push(src);
-      await env.DB.prepare(`UPDATE listings SET images = ?1, updated_at = ?2 WHERE id = ?3`)
-        .bind(JSON.stringify(images.slice(0, 8)), new Date().toISOString(), id).run();
+    const result = await env.DB.prepare(
+      `UPDATE listings
+          SET images = CASE
+                WHEN json_array_length(COALESCE(images, '[]')) < 30
+                THEN json_insert(COALESCE(images, '[]'), '$[#]', ?1)
+                ELSE images
+              END,
+              updated_at = ?2
+        WHERE id = ?3`
+    ).bind(src, new Date().toISOString(), id).run();
+
+    if ((result.meta?.changes ?? 0) === 0) {
+      /* No such listing. The object is already in R2, so remove it rather than
+       * leave a file nothing points at. */
+      await env.DOCS.delete(key).catch(() => {});
+      return fail(404, 'listing_not_found');
     }
   } catch (err) {
     console.error('[listing-upload] could not attach the image:', err);
+    await env.DOCS.delete(key).catch(() => {});
+    return fail(500, 'attach_failed', String(err));
   }
 
   console.log(`[listing-upload] ${user.email} added a photo to listing ${id}`);

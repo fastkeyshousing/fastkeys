@@ -422,7 +422,7 @@ const routes = {
     const to = application.email || row.email;
 
     const images = (Array.isArray(params.images) ? params.images : String(params.images || '').split(/\s+/))
-      .map(safeUrl).filter(Boolean).slice(0, 6);
+      .map(safeUrl).filter(Boolean).slice(0, 30);
 
     if (!params.address && !params.headline) throw new Error('Give it an address or a headline');
 
@@ -649,7 +649,7 @@ const routes = {
       const fromUpload = uploaded.filter((u) => String(u).startsWith('/api/listing-image'));
       images = [...fromUpload, ...images.filter((i) => !i.startsWith('/api/listing-image'))];
     }
-    images = images.slice(0, 8);
+    images = images.slice(0, 30);
 
     const slugFrom = (s) => String(s).toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
