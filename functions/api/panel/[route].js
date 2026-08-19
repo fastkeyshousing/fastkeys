@@ -18,6 +18,7 @@ import { applicantEmail } from '../../../lib/applicant-email.js';
 import { propertyEmail, safeUrl } from '../../../lib/property-email.js';
 import { sendAndLog } from '../../../lib/send-log.js';
 import { customEmail } from '../../../lib/custom-email.js';
+import { landlordEmail } from '../../../lib/landlord-email.js';
 
 const REF_RE = /^FK-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
 const VREF_RE = /^FV-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
@@ -28,6 +29,10 @@ const STATUSES = ['pending', 'paid', 'expired', 'failed'];
  * creates one, or removes one stays with the owner: a viewing schedule is
  * day-to-day work, an applicant's income figure is not. */
 const OWNER_ONLY = new Set(['update', 'remove', 'create', 'updateEmail', 'reconcile',
+  'archive', 'unarchive', 'deletions',
+  /* A cold email naming a client's income, sent outside the business, with
+   * something offered in return. Owner's decision. */
+  'sendLandlord',
   /* Publishing to the public site is an owner decision: a listing that names a
    * landlord is the one artefact on this site with legal consequences. */
   'listingSave', 'listingDelete']);
@@ -42,7 +47,8 @@ const EDITABLE = [
 ];
 
 const routes = {
-  async list(env, { q, status, sort, closed, docs, budgetMin, budgetMax }) {
+  async list(env, { q, status, sort, closed, docs, budgetMin, budgetMax, archived }) {
+    const params_archived = archived;
     const where = [];
     if (status && status !== 'all') where.push(`a.status = '${esc(status)}'`);
     if (q) {
@@ -54,6 +60,11 @@ const routes = {
     /* Closed cases are shown by default and dimmed, rather than hidden: they are
      * still the record of somebody we placed, and hiding them by default is how
      * you lose track of your own successes. */
+    /* Archived clients are out of the way by default but never gone. Passing
+     * archived=only shows them, archived=all shows everything. */
+    if (params_archived === 'only') where.push(`a.archived_at IS NOT NULL`);
+    else if (params_archived !== 'all') where.push(`a.archived_at IS NULL`);
+
     if (closed === 'open') where.push(`a.case_closed_at IS NULL`);
     if (closed === 'closed') where.push(`a.case_closed_at IS NOT NULL`);
     if (docs === 'yes') where.push(`EXISTS (SELECT 1 FROM documents d WHERE d.reference = a.reference AND d.deleted_at IS NULL)`);
@@ -86,6 +97,7 @@ const routes = {
       `SELECT a.reference, a.status, a.name, a.email, a.amount_total, a.currency,
               a.created_at, a.paid_at, a.notified_at, a.applicant_emailed_at,
               a.reminder_sent_at, a.reminder_count, a.case_closed_at, a.case_note,
+              a.archived_at, a.archived_by, a.archive_reason,
               json_extract(a.payload,'$.budget') AS budget,
               json_extract(a.payload,'$.city')   AS city,
               (SELECT COUNT(*) FROM documents d WHERE d.reference = a.reference AND d.deleted_at IS NULL) AS doc_count
@@ -235,6 +247,7 @@ const routes = {
     const rows = await env.DB.prepare(
       `SELECT reference, stripe_session_id FROM applications
         WHERE status = 'pending' AND stripe_session_id IS NOT NULL
+          AND archived_at IS NULL
         ORDER BY created_at DESC LIMIT 60`
     ).all();
 
@@ -351,6 +364,10 @@ const routes = {
     }
     if (unsent === 'confirmation') where.push(`a.applicant_emailed_at IS NULL AND a.status = 'paid'`);
     if (unsent === 'reminder') where.push(`a.reminder_count = 0 AND a.status <> 'paid'`);
+
+    /* Archived clients are out of the mail view as well: chasing somebody you
+     * have archived is exactly the mistake this is meant to prevent. */
+    where.push(`a.archived_at IS NULL`);
 
     const rows = await env.DB.prepare(
       `SELECT a.reference, a.name, a.email, a.status, a.created_at, a.paid_at,
@@ -776,11 +793,222 @@ const routes = {
     return { ok: true, sentTo: to };
   },
 
-  async remove(env, { reference, confirm }) {
+  /* Approaches a landlord or agency about one property, for one client.
+   *
+   * Owner only. A cold email that names a real applicant's income and offers
+   * something in return is the most consequential message this panel can send,
+   * and it goes to somebody outside the business. */
+  async sendLandlord(env, params, user) {
+    const to = String(params.to || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(to)) throw new Error('That recipient address does not look right');
+
+    const reference = String(params.reference || '');
+    if (!REF_RE.test(reference)) throw new Error('Pick which client this is for');
+
+    const address = String(params.address || '').trim().slice(0, 240);
+    if (address.length < 4) throw new Error('Which property? An address is required');
+
+    const row = await env.DB.prepare(
+      `SELECT reference, name, email, payload, status FROM applications WHERE reference = ?1`
+    ).bind(reference).first();
+    if (!row) throw new Error('No application with that reference');
+    /* Writing to a landlord about somebody who has not paid means promising a
+     * tenant we have not been engaged by. */
+    if (row.status !== 'paid') throw new Error(`That client is "${row.status}", not paid`);
+
+    let client = {};
+    try { client = JSON.parse(row.payload); } catch { /* columns will do */ }
+
+    const site = (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, '');
+    const support = env.NOTIFY_EMAIL || 'hello@fastkeyshousing.com';
+
+    let listingUrl = String(params.listing_url || '').trim().slice(0, 500);
+    if (listingUrl && !/^https?:\/\//i.test(listingUrl)) listingUrl = '';
+
+    const incentive = String(params.incentive || '').slice(0, 1200);
+    const meetingText = String(params.meeting_text || '').slice(0, 1200);
+
+    const { subject, html, text } = landlordEmail({
+      recipientName: String(params.recipient_name || '').slice(0, 160),
+      address,
+      clientFirstName: String(client.name || row.name || '').split(' ')[0],
+      client,
+      intro: String(params.intro || '').slice(0, 2000),
+      incentive, meetingText, listingUrl,
+      siteUrl: site, supportEmail: support,
+      senderName: String(params.sender_name || '').slice(0, 120),
+      reference: row.reference,
+    });
+
+    await sendAndLog(env, {
+      reference: row.reference, kind: 'landlord', to, subject, html, text,
+      sentBy: user.email,
+      meta: { address, incentive: incentive || null, recipient_name: params.recipient_name || null },
+    });
+
+    /* Recorded so nobody writes to the same agency about the same flat twice. */
+    try {
+      await env.DB.prepare(
+        `INSERT INTO landlord_outreach
+           (id, reference, recipient, recipient_name, address, listing_id, incentive,
+            meeting_proposed, sent_by, sent_at, updated_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)`
+      ).bind(
+        crypto.randomUUID(), row.reference, to,
+        String(params.recipient_name || '').slice(0, 160), address,
+        /^[0-9a-f-]{36}$/.test(params.listing_id || '') ? params.listing_id : null,
+        incentive || null, meetingText || null, user.email, new Date().toISOString()
+      ).run();
+    } catch (err) {
+      console.error('[outreach] could not record it:', err);
+    }
+
+    return { ok: true, sentTo: to, subject };
+  },
+
+  /* Renders the landlord email without sending it, so the preview is the real
+   * thing rather than a second implementation that can drift. */
+  async previewLandlord(env, params) {
+    const reference = String(params.reference || '');
+    if (!REF_RE.test(reference)) throw new Error('Pick which client this is for');
+    const address = String(params.address || '').trim().slice(0, 240);
+    if (address.length < 4) throw new Error('An address is required');
+
+    const row = await env.DB.prepare(
+      `SELECT reference, name, payload FROM applications WHERE reference = ?1`
+    ).bind(reference).first();
+    if (!row) throw new Error('No application with that reference');
+
+    let client = {};
+    try { client = JSON.parse(row.payload); } catch { /* columns will do */ }
+
+    let listingUrl = String(params.listing_url || '').trim().slice(0, 500);
+    if (listingUrl && !/^https?:\/\//i.test(listingUrl)) listingUrl = '';
+
+    const { subject, html } = landlordEmail({
+      recipientName: String(params.recipient_name || '').slice(0, 160),
+      address,
+      clientFirstName: String(client.name || row.name || '').split(' ')[0],
+      client,
+      intro: String(params.intro || '').slice(0, 2000),
+      incentive: String(params.incentive || '').slice(0, 1200),
+      meetingText: String(params.meeting_text || '').slice(0, 1200),
+      listingUrl,
+      siteUrl: (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, ''),
+      supportEmail: env.NOTIFY_EMAIL || 'hello@fastkeyshousing.com',
+      senderName: String(params.sender_name || '').slice(0, 120),
+      reference: row.reference,
+    });
+    return { subject, html };
+  },
+
+  /* Everyone we have approached, so a second approach is a decision rather than
+   * an accident. */
+  async outreach(env, { reference, status }) {
+    const where = [];
+    if (reference) {
+      if (!REF_RE.test(reference)) throw new Error('Not a valid reference');
+      where.push(`o.reference = '${esc(reference)}'`);
+    }
+    if (status && status !== 'all') where.push(`o.status = '${esc(status)}'`);
+    const rows = await env.DB.prepare(
+      `SELECT o.*, a.name AS client_name
+         FROM landlord_outreach o
+         LEFT JOIN applications a ON a.reference = o.reference
+        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+        ORDER BY o.sent_at DESC LIMIT 200`
+    ).all();
+    return { rows: rows.results ?? [] };
+  },
+
+  async outreachUpdate(env, { id, status, reply_note }, user) {
+    if (!/^[0-9a-f-]{36}$/.test(id || '')) throw new Error('Bad id');
+    const allowed = ['sent', 'replied', 'meeting_booked', 'declined', 'no_response'];
+    const sets = [];
+    if (status) {
+      if (!allowed.includes(status)) throw new Error('Not a valid status');
+      sets.push(`status = '${esc(status)}'`);
+    }
+    if (reply_note !== undefined) sets.push(`reply_note = '${esc(String(reply_note).slice(0, 800))}'`);
+    if (!sets.length) throw new Error('Nothing to change');
+    await env.DB.prepare(
+      `UPDATE landlord_outreach SET ${sets.join(', ')}, updated_at = ?1 WHERE id = ?2`
+    ).bind(new Date().toISOString(), id).run();
+    return { ok: true };
+  },
+
+  /* The default. Nothing is destroyed: the row drops out of the client list and
+   * can be brought back with one click. */
+  async archive(env, { reference, reason }, user) {
+    if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
+    const res = await env.DB.prepare(
+      `UPDATE applications
+          SET archived_at = ?1, archived_by = ?2, archive_reason = ?3
+        WHERE reference = ?4 AND archived_at IS NULL`
+    ).bind(new Date().toISOString(), user.email, String(reason || '').slice(0, 400), reference).run();
+    if ((res.meta?.changes ?? 0) === 0) throw new Error('Not found, or already archived');
+    console.log(`[archive] ${user.email} archived ${reference}`);
+    return { ok: true, archived: reference };
+  },
+
+  async unarchive(env, { reference }, user) {
+    if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
+    const res = await env.DB.prepare(
+      `UPDATE applications SET archived_at = NULL, archived_by = NULL, archive_reason = NULL
+        WHERE reference = ?1 AND archived_at IS NOT NULL`
+    ).bind(reference).run();
+    if ((res.meta?.changes ?? 0) === 0) throw new Error('Not found, or not archived');
+    console.log(`[archive] ${user.email} restored ${reference}`);
+    return { ok: true, restored: reference };
+  },
+
+  /* A real erasure, for when somebody asks under the AVG. Two deliberate steps:
+   * the record must already be archived, and the reference must be typed out.
+   * A snapshot goes to deletion_log first, so afterwards there is still an answer
+   * to "was this deleted, or did it never exist". */
+  async remove(env, { reference, confirm, reason }, user) {
     if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
     if (confirm !== reference) throw new Error('Type the reference exactly to confirm');
-    await env.DB.prepare(`DELETE FROM applications WHERE reference = ?1`).bind(reference).run();
-    return { ok: true, deleted: reference };
+    /* Enforced here as well as in the interface. The reason is the only record
+     * that survives of why somebody's file was destroyed, so it cannot be
+     * optional just because a different client skipped the field. */
+    if (String(reason || '').trim().length < 3) {
+      throw new Error('A reason is required, and it is kept as the record of why this was deleted');
+    }
+
+    const row = await env.DB.prepare(
+      `SELECT * FROM applications WHERE reference = ?1`
+    ).bind(reference).first();
+    if (!row) throw new Error('No application with that reference');
+    if (!row.archived_at) {
+      throw new Error('Archive it first. Permanent deletion is only for an erasure request.');
+    }
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO deletion_log (id, entity, reference, name, email, snapshot, deleted_by, deleted_at, reason)
+         VALUES (?1,'application',?2,?3,?4,?5,?6,?7,?8)`
+      ).bind(crypto.randomUUID(), row.reference, row.name, row.email,
+             JSON.stringify(row), user.email, new Date().toISOString(),
+             String(reason || '').slice(0, 400)).run();
+    } catch (err) {
+      /* If the record of the deletion cannot be written, do not delete. */
+      throw new Error(`Could not write the deletion record, so nothing was deleted: ${err.message}`);
+    }
+
+    const res = await env.DB.prepare(`DELETE FROM applications WHERE reference = ?1`)
+      .bind(reference).run();
+    console.warn(`[delete] ${user.email} permanently deleted ${reference} (${res.meta?.changes ?? 0} row)`);
+    return { ok: true, deleted: reference, rows: res.meta?.changes ?? 0 };
+  },
+
+  /* What was destroyed, and by whom. */
+  async deletions(env) {
+    const rows = await env.DB.prepare(
+      `SELECT id, entity, reference, name, email, deleted_by, deleted_at, reason
+         FROM deletion_log ORDER BY deleted_at DESC LIMIT 200`
+    ).all();
+    return { rows: rows.results ?? [] };
   },
 };
 

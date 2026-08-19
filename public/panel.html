@@ -715,6 +715,10 @@ textarea.pn-in{min-height:60px; resize:vertical}
 .pn-modal .bx{background:#3A4553; border:1px solid rgba(255,255,255,.12); border-radius:16px;
   padding:22px 24px; width:min(640px,92vw); max-height:88vh; overflow:auto}
 /* case closed: dimmed rather than hidden, and reversible */
+.pn-r.archived{opacity:.55; background:repeating-linear-gradient(135deg,
+  transparent, transparent 8px, rgba(255,255,255,.03) 8px, rgba(255,255,255,.03) 16px)}
+.pn-r.archived .nm::after{content:' archived'; color:#F2CC8F; font-size:11px; font-weight:700;
+  letter-spacing:.06em; text-transform:uppercase; margin-left:7px}
 .pn-r.closed{opacity:.42}
 .pn-r.closed .nm::after{content:' \2713 placed'; color:#8FD3A3; font-size:11.5px; font-weight:700;
   letter-spacing:.05em; text-transform:uppercase; margin-left:7px}
@@ -837,6 +841,11 @@ textarea.pn-in{min-height:60px; resize:vertical}
           <option value="nameDesc">Name Z&ndash;A</option>
           <option value="budget">Budget, high to low</option>
           <option value="budgetAsc">Budget, low to high</option>
+        </select>
+        <select id="pnArchived" class="pn-in">
+          <option value="active">Active clients</option>
+          <option value="only">Archive</option>
+          <option value="all">Active and archived</option>
         </select>
         <select id="pnClosed" class="pn-in">
           <option value="all">Open and placed</option>
@@ -1013,7 +1022,8 @@ textarea.pn-in{min-height:60px; resize:vertical}
     api(selectedKind, {
       q: $('#pnQ').value.trim(), status: $('#pnStatus').value,
       sort: $('#pnSort').value, closed: $('#pnClosed').value, docs: $('#pnDocs').value,
-      budgetMin: $('#pnBMin').value, budgetMax: $('#pnBMax').value
+      budgetMin: $('#pnBMin').value, budgetMax: $('#pnBMax').value,
+      archived: $('#pnArchived').value
     })
       .then(function(d){
         cachedRows = d.rows;
@@ -1046,7 +1056,8 @@ textarea.pn-in{min-height:60px; resize:vertical}
             bits.push(esc(r.property_address || ''));
           }
           var meta = bits.join(' \u00b7 ');
-          return '<div class="pn-r' + (r.case_closed_at ? ' closed' : '') + '" data-ref="' + esc(r.reference) + '">' +
+          return '<div class="pn-r' + (r.case_closed_at ? ' closed' : '') +
+            (r.archived_at ? ' archived' : '') + '" data-ref="' + esc(r.reference) + '">' +
             '<span class="nm">' + esc(r.name) + '</span>' +
             '<span class="pn-pill ' + esc(pill) + '">' + esc(pill) + '</span>' +
             '<span class="rf">' + esc(r.reference) + '</span>' +
@@ -1180,11 +1191,29 @@ textarea.pn-in{min-height:60px; resize:vertical}
         : '') +
 
       (editable
-        ? '<div class="pn-sec"><div class="pn-danger"><h4>Delete this application</h4>' +
-          '<p class="pn-hint2" style="margin-top:0">Permanent, and the right thing when somebody asks ' +
-          'to be erased. The payment record stays in Stripe.</p><div class="pn-inline">' +
-          '<input id="pnDel" class="pn-in" placeholder="Type ' + esc(r.reference) + ' to confirm">' +
-          '<button class="pn-b rd" id="pnDelBtn">Delete</button></div></div></div>'
+        ? '<div class="pn-sec"><h3>Archive</h3>' +
+          (r.archived_at
+            ? '<p class="pn-hint2" style="margin-top:0">Archived on ' + esc(when(r.archived_at)) +
+              ' by ' + esc(r.archived_by || '') + '.' +
+              (r.archive_reason ? '<br>Reason: ' + esc(r.archive_reason) : '') + '</p>' +
+              '<div class="pn-acts"><button class="pn-b" id="pnUnarch">Restore to the client list</button></div>'
+            : '<p class="pn-hint2" style="margin-top:0">Takes them off the client list and keeps ' +
+              'everything: documents, emails, payment record, letter. Reversible at any time from ' +
+              'the Archive filter.</p><div class="pn-inline">' +
+              '<input id="pnArchWhy" class="pn-in" placeholder="Why? (optional, e.g. found a place elsewhere)">' +
+              '<button class="pn-b" id="pnArchBtn">Archive</button></div>') +
+          '<div class="pn-msg2" id="pnArchMsg"></div></div>' +
+          (r.archived_at
+            ? '<div class="pn-sec"><div class="pn-danger"><h4>Delete permanently</h4>' +
+              '<p class="pn-hint2" style="margin-top:0">For a genuine erasure request under the AVG. ' +
+              'Everything goes: documents, email history, the record itself. The Stripe payment stays, ' +
+              'because tax law requires it. A note of what was deleted and why is kept.</p>' +
+              '<div class="pn-inline"><input id="pnDelWhy" class="pn-in" placeholder="Reason, required"></div>' +
+              '<div class="pn-inline">' +
+              '<input id="pnDel" class="pn-in" placeholder="Type ' + esc(r.reference) + ' to confirm">' +
+              '<button class="pn-b rd" id="pnDelBtn">Delete permanently</button></div>' +
+              '<div class="pn-msg2" id="pnDelMsg"></div></div></div>'
+            : '')
         : '');
 
     $('#pnCopy').onclick = function(){
@@ -1271,17 +1300,53 @@ textarea.pn-in{min-height:60px; resize:vertical}
           .then(function(){ btn.disabled = false; btn.textContent = 'Save changes'; });
       };
 
-      $('#pnDelBtn').onclick = function(){
-        var typed = $('#pnDel').value.trim();
-        if(typed !== r.reference) return note('#pnEditMsg', 'Type the reference exactly to confirm.', false);
-        if(!confirm('Delete ' + r.reference + ' permanently? This cannot be undone.')) return;
-        api('remove', {reference: r.reference, confirm: typed}, 'POST')
+      if($('#pnArchBtn')) $('#pnArchBtn').onclick = function(){
+        api('archive', {reference: r.reference,
+                        reason: ($('#pnArchReason') || {value:''}).value.trim()}, 'POST')
+          .then(function(){ load(); openRow(r.reference); })
+          .catch(function(e){ note('#pnEditMsg', e.message, false); });
+      };
+
+      if($('#pnUnarch')) $('#pnUnarch').onclick = function(){
+        api('unarchive', {reference: r.reference}, 'POST')
+          .then(function(){ load(); openRow(r.reference); })
+          .catch(function(e){ note('#pnEditMsg', e.message, false); });
+      };
+
+      if($('#pnArchBtn')) $('#pnArchBtn').onclick = function(){
+        api('archive', {reference: r.reference, reason: $('#pnArchWhy').value.trim()}, 'POST')
           .then(function(){
+            note('#pnArchMsg', 'Archived. Set the first filter to "Archive" to find it again.', true);
+            load(); openRow(r.reference);
+          })
+          .catch(function(e){ note('#pnArchMsg', e.message, false); });
+      };
+
+      if($('#pnUnarch')) $('#pnUnarch').onclick = function(){
+        api('unarchive', {reference: r.reference}, 'POST')
+          .then(function(){
+            note('#pnArchMsg', 'Restored to the client list.', true);
+            load(); openRow(r.reference);
+          })
+          .catch(function(e){ note('#pnArchMsg', e.message, false); });
+      };
+
+      /* Two deliberate steps: a written reason, and the reference typed out. The
+         reason is not bureaucracy, it is the only surviving record of why somebody's
+         file was destroyed. */
+      if($('#pnDelBtn')) $('#pnDelBtn').onclick = function(){
+        var typed = $('#pnDel').value.trim();
+        var why = $('#pnDelWhy').value.trim();
+        if(!why) return note('#pnDelMsg', 'A reason is required. It is the record of why this was destroyed.', false);
+        if(typed !== r.reference) return note('#pnDelMsg', 'Type the reference exactly to confirm.', false);
+        if(!confirm('Delete ' + r.reference + ' permanently?\n\nDocuments and email history go with it. This cannot be undone.')) return;
+        api('remove', {reference: r.reference, confirm: typed, reason: why}, 'POST')
+          .then(function(res){
             selected = null;
-            $('#pnPane').innerHTML = '<div class="pn-empty">Deleted.</div>';
+            $('#pnPane').innerHTML = '<div class="pn-empty">Deleted. ' + (res.rows || 0) + ' record removed.</div>';
             load();
           })
-          .catch(function(e){ note('#pnEditMsg', e.message, false); });
+          .catch(function(e){ note('#pnDelMsg', e.message, false); });
       };
     }
   }
@@ -1405,6 +1470,91 @@ textarea.pn-in{min-height:60px; resize:vertical}
         btn.disabled = false; btn.textContent = 'Send it';
         note('#cuMsg', e.message, false);
       });
+    };
+  }
+
+  /* Approaching a landlord about one property, for this client.
+     The incentive box is deliberately empty by default and free text: what is
+     offered, and by whom, is the most consequential line in this email and
+     should be written each time rather than defaulted. */
+  function landlordComposer(ref, client, after){
+    var first = String(client.name || '').split(' ')[0];
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">Approach a landlord about a property</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">For <b>' + esc(client.name) + '</b>. The email ' +
+      'presents their income, guarantor and dates, but not their full name or contact ' +
+      'details &mdash; those come at the meeting.</p>' +
+      '<div class="pn-grid">' +
+      '<div><label for="lo_to">Landlord or agency email</label>' +
+        '<input id="lo_to" class="pn-in" type="email" placeholder="info@vastgoed.nl"></div>' +
+      '<div><label for="lo_name">Their name (optional)</label>' +
+        '<input id="lo_name" class="pn-in" placeholder="Van der Berg Vastgoed"></div>' +
+      '<div class="wide"><label for="lo_address">Which property</label>' +
+        '<input id="lo_address" class="pn-in" placeholder="Brusselsestraat 12, Maastricht"></div>' +
+      '<div class="wide"><label for="lo_listing">Link to their listing (optional)</label>' +
+        '<input id="lo_listing" class="pn-in" placeholder="https://www.pararius.nl/..."></div>' +
+      '<div><label for="lo_sender">Signed by</label>' +
+        '<input id="lo_sender" class="pn-in" value="Theo, FastKeys"></div>' +
+      '<div></div>' +
+      '<div class="wide"><label for="lo_intro">Opening line</label>' +
+        '<textarea id="lo_intro" class="pn-in" placeholder="I saw your listing on Pararius this morning and I have one client who fits it well."></textarea></div>' +
+      '<div class="wide"><label for="lo_meeting">The meeting you are proposing</label>' +
+        '<textarea id="lo_meeting" class="pn-in" placeholder="Would Thursday or Friday afternoon suit for a twenty minute introduction at the property? ' +
+        (first ? esc(first) : 'My client') + ' can come whenever works for you."></textarea></div>' +
+      '<div class="wide"><label for="lo_incentive">What you are offering to hold it (optional)</label>' +
+        '<textarea id="lo_incentive" class="pn-in" style="min-height:90px" placeholder="Leave blank, or write it in your own words."></textarea>' +
+        '<p class="pn-hint2"><b>Read this before offering money.</b> If <em>you</em> pay the landlord, ' +
+        'you are acting for them as well as for your client, and a tenant-paid fee then becomes ' +
+        'unlawful and reclaimable for five years. If your <em>client</em> pays it as a reservation ' +
+        'towards their own rent or deposit, that problem does not arise. Word it so it is clear ' +
+        'which one it is.</p></div>' +
+      '</div>' +
+      '<div class="pn-acts"><button class="pn-b" id="loSend">Send it</button>' +
+      '<button class="pn-b gh" id="loPreview">Preview</button>' +
+      '<button class="pn-b gh" id="loCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="loMsg"></div><div id="loPrev"></div>';
+
+    $('#pnModal').classList.add('open');
+    $('#loCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+
+    var collect = function(){
+      return {
+        reference: ref, to: $('#lo_to').value.trim(),
+        recipient_name: $('#lo_name').value.trim(),
+        address: $('#lo_address').value.trim(),
+        listing_url: $('#lo_listing').value.trim(),
+        sender_name: $('#lo_sender').value.trim(),
+        intro: $('#lo_intro').value, meeting_text: $('#lo_meeting').value,
+        incentive: $('#lo_incentive').value
+      };
+    };
+
+    $('#loPreview').onclick = function(){
+      var body = collect();
+      if(!body.address){ return note('#loMsg', 'Add the address first.', false); }
+      /* Previewed by asking the server to render it, so what is shown is exactly
+         what would be sent rather than a second implementation. */
+      api('previewLandlord', body, 'POST')
+        .then(function(p){
+          $('#loPrev').innerHTML = '<p class="pn-hint2">Subject: ' + esc(p.subject) + '</p>' +
+            '<iframe sandbox srcdoc="' + esc(p.html) + '" style="width:100%;height:460px;border:1px solid rgba(255,255,255,.12);border-radius:11px;background:#fff;margin-top:8px"></iframe>';
+        })
+        .catch(function(e){ note('#loMsg', e.message, false); });
+    };
+
+    $('#loSend').onclick = function(){
+      var btn = $('#loSend');
+      btn.disabled = true; btn.textContent = 'Sending\u2026';
+      api('sendLandlord', collect(), 'POST')
+        .then(function(res){
+          $('#pnModal').classList.remove('open');
+          note('#mMsg', 'Sent to ' + res.sentTo + '.', true);
+          if(after) after();
+        })
+        .catch(function(e){
+          btn.disabled = false; btn.textContent = 'Send it';
+          note('#loMsg', e.message, false);
+        });
     };
   }
 
@@ -1971,6 +2121,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
         'Payment reminder</button>' +
       '<button class="pn-b gh" id="mSendProperty">Send a property</button>' +
       '<button class="pn-b gh" id="mSendCustom">Custom email</button>' +
+      (isOwner() ? '<button class="pn-b gh" id="mSendLandlord">Approach a landlord</button>' : '') +
       '</div>' +
       (r.status !== 'paid'
         ? '<p class="pn-hint2">Unpaid, so the receipt is unavailable. The reminder links back to a ' +
@@ -1991,6 +2142,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
     $('#mSendProperty').onclick = function(){ propertyComposer(ref, r, refresh); };
     $('#mSendCustom').onclick = function(){ customComposer(ref, r, refresh); };
+    if($('#mSendLandlord')) $('#mSendLandlord').onclick = function(){ landlordComposer(ref, r, refresh); };
   }
 
   function send(route, params, btn, after, mayRepeat){
@@ -2263,7 +2415,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
   });
 
   var t;
-  ['#pnSort','#pnClosed','#pnDocs'].forEach(function(s){
+  ['#pnSort','#pnClosed','#pnDocs','#pnArchived'].forEach(function(s){
     $(s).addEventListener('change', load);
   });
   ['#pnBMin','#pnBMax'].forEach(function(s){
@@ -2275,6 +2427,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
   $('#pnClear').addEventListener('click', function(){
     $('#pnQ').value = ''; $('#pnStatus').value = 'all'; $('#pnSort').value = 'recent';
     $('#pnClosed').value = 'all'; $('#pnDocs').value = 'all';
+    $('#pnArchived').value = 'active';
     $('#pnBMin').value = ''; $('#pnBMax').value = '';
     load();
   });
