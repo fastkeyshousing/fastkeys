@@ -94,8 +94,9 @@ export async function onRequestPost(context) {
   try {
     await env.DB.prepare(
       `INSERT INTO applications
-         (id, reference, status, name, email, payload, letter, created_at, ip_hash)
-       VALUES (?1, ?2, 'pending', ?3, ?4, ?5, ?6, ?7, ?8)`
+         (id, reference, status, name, email, payload, letter, created_at, ip_hash,
+            date_of_birth, household)
+       VALUES (?1, ?2, 'pending', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
     )
       .bind(
         application.id,
@@ -105,7 +106,12 @@ export async function onRequestPost(context) {
         JSON.stringify(application),
         letter,
         now,
-        ipHash
+        ipHash,
+        /* Mirrored into columns as well as the payload so they can be filtered on.
+           Null when not given, which is every application made before this field
+           existed. */
+        application.date_of_birth || null,
+        application.household || null
       )
       .run();
   } catch (err) {

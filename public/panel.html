@@ -926,6 +926,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
     {k:'guarantor_income', label:'Guarantor income'},
     {k:'months_in_advance', label:'Rent in advance', type:'select', options:['0','1','2','3','6']},
     {k:'household', label:'Household', type:'select', options:['single','partner']},
+    {k:'date_of_birth', label:'Date of birth', type:'date'},
     {k:'available_from', label:'Available from', type:'date'},
     {k:'duration', label:'Duration', type:'select',
      options:['6 to 12 months','12+ months','24+ months','an indefinite period']},
@@ -1163,7 +1164,10 @@ textarea.pn-in{min-height:60px; resize:vertical}
       row('Monthly income', euro(a.income)) + row('Monthly budget', euro(a.budget)) +
       row('Savings', euro(a.savings)) + row('Guarantor income', euro(a.guarantor_income)) +
       row('Rent in advance', a.months_in_advance && a.months_in_advance !== '0' ? a.months_in_advance + ' month(s)' : '') +
-      row('Household', a.household === 'partner' ? 'With partner' : 'Single') +
+      row('Household', a.household === 'partner' ? 'With partner or spouse' : 'Single') +
+      /* Blank for everyone who applied before the field existed, which is the
+         honest answer rather than a guess. */
+      row('Date of birth', a.date_of_birth ? when(a.date_of_birth).split(',')[0] : '') +
       row('Available from', a.available_from) + row('Duration', a.duration) +
       row('Traits', Array.isArray(a.personality) ? a.personality.join(', ') : a.personality) +
       row('Hobbies', a.hobbies) + row('Notes', a.notes) +

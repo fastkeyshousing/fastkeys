@@ -729,10 +729,22 @@ button{font:inherit; color:inherit}
         <div class="field">
           <label for="household">Moving in as</label>
           <select id="household" name="household">
-            <option value="single">Single</option>
-            <option value="partner">With partner</option>
+            <option value="single">Just me</option>
+            <option value="partner">With my partner or spouse</option>
           </select>
         </div>
+        <div class="field">
+          <label for="dob">Date of birth</label>
+          <!-- Landlords ask for this on every application form, so collecting it
+               here saves a round trip later. The max attribute is set from the
+               browser clock on load so the eighteen-year floor stays right without
+               a redeploy, and the server checks the same thing again. -->
+          <input id="dob" name="date_of_birth" type="date" required>
+          <p class="hint">You must be 18 or older to sign a tenancy in the Netherlands.</p>
+        </div>
+      </div>
+
+      <div class="two">
         <div class="field">
           <label for="from">Available from</label>
           <!-- min is set from the browser clock on load, so it stays correct
@@ -1197,6 +1209,18 @@ button{font:inherit; color:inherit}
   var MIN_FROM = iso(today);
   var MAX_FROM = iso(new Date(today.getFullYear() + 2, today.getMonth(), today.getDate()));
   (function(){
+    /* Eighteen years ago today. Set from the browser clock so it stays correct
+       without a redeploy; the server enforces the same rule. */
+    var dob = $('#dob');
+    if(dob){
+      var cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 18);
+      dob.max = cutoff.toISOString().slice(0, 10);
+      var oldest = new Date();
+      oldest.setFullYear(oldest.getFullYear() - 100);
+      dob.min = oldest.toISOString().slice(0, 10);
+    }
+
     var f = $('#from');
     if(f){ f.min = MIN_FROM; f.max = MAX_FROM; }
   })();
@@ -1371,7 +1395,7 @@ button{font:inherit; color:inherit}
       income: val('income'), budget: val('budget'),
       months_in_advance: val('advance'), savings: val('savings'),
       guarantor_income: val('gross'),
-      household: val('household'), available_from: val('from'), duration: val('duration'),
+      household: val('household'), date_of_birth: val('dob'), available_from: val('from'), duration: val('duration'),
       no_pets: on('noPets'), non_smoker: on('nonSmoker'), no_instruments: on('noInstruments'),
       personality: traits.join(', '), hobbies: val('hobbies'),
       notes: val('notes'),

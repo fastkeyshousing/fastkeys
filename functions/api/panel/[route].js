@@ -45,7 +45,7 @@ const esc = (s) => String(s).replace(/'/g, "''");
 const EDITABLE = [
   'name', 'email', 'phone', 'city', 'employment', 'role', 'organisation',
   'income', 'budget', 'savings', 'guarantor_income', 'months_in_advance',
-  'household', 'available_from', 'duration', 'hobbies', 'notes',
+  'household', 'date_of_birth', 'available_from', 'duration', 'hobbies', 'notes',
 ];
 
 const routes = {
@@ -199,6 +199,17 @@ const routes = {
     const sets = [`payload = '${esc(JSON.stringify(payload))}'`];
     if (payload.name) sets.push(`name = '${esc(payload.name)}'`);
     if (payload.email) sets.push(`email = '${esc(payload.email)}'`);
+
+    /* date_of_birth and household exist both in the payload and as columns.
+     * Written to both here, or they drift and the column becomes a lie.
+     * Guarded on the real column list so an un-migrated deploy still saves. */
+    const shape = await env.DB.prepare(`SELECT name FROM pragma_table_info('applications')`).all();
+    const columns = new Set((shape.results ?? []).map((c) => c.name));
+    for (const key of ['date_of_birth', 'household']) {
+      if (!columns.has(key)) continue;
+      const v = payload[key];
+      sets.push(v ? `${key} = '${esc(v)}'` : `${key} = NULL`);
+    }
     if (status && status !== row.status) {
       if (!STATUSES.includes(status)) throw new Error('Not a valid status');
       sets.push(`status = '${esc(status)}'`);
