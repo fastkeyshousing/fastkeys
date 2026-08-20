@@ -110,9 +110,34 @@ export async function onRequestPost({ request, env }) {
       return fail(415, 'not_a_page', `That link is ${type || 'not a web page'}`);
     }
 
-    const html = (await res.text()).slice(0, MAX_HTML);
+    const raw = await res.text();
+
+    /* A page assembled in the browser arrives as an empty shell: a bit of markup
+     * and a script tag. Parsing it produces a listing full of wrong guesses,
+     * which is worse than none, so it is refused with an explanation instead. */
+    const visible = raw
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const hasStructured = /application\/ld\+json/i.test(raw) || /property=["']og:/i.test(raw);
+    if (visible.length < 400 && !hasStructured) {
+      return fail(422, 'page_is_empty',
+        'That page builds itself in the browser, so there is nothing to read from the server. '
+        + 'Open it, select the text and use "Paste a post" instead.');
+    }
+
+    const html = raw.slice(0, MAX_HTML);
     const draft = parseHtml(html, checked.url);
     draft.source_url = checked.url;
+
+    /* Reported so a thin result is visibly thin rather than quietly wrong. */
+    const filled = ['address', 'rent', 'city', 'size', 'rooms', 'available_from']
+      .filter((k) => draft[k]).length;
+    if (filled < 2) {
+      return fail(422, 'nothing_found',
+        'The page loaded but nothing recognisable came out of it. Copy the text and use '
+        + '"Paste a post" instead, which reads free text rather than page structure.');
+    }
 
     console.log(`[import] ${user.email} imported ${checked.host}`);
     return json({

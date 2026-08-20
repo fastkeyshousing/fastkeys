@@ -1083,16 +1083,29 @@ const routes = {
       .filter((r) => REF_RE.test(String(r || ''))).slice(0, 200);
     if (!refs.length) throw new Error('Nobody selected');
 
+    /* Read the real columns first. If a deploy lands before db:migrate, naming a
+     * column that does not exist yet fails the whole statement, and a bulk send
+     * that dies halfway is worse than one that skips a check. */
+    const cols = await env.DB.prepare(`SELECT name FROM pragma_table_info('applications')`).all();
+    const has = new Set((cols.results ?? []).map((c) => c.name));
+    const optional = ['archived_at', 'case_closed_at', 'applicant_emailed_at', 'reminder_count']
+      .filter((c) => has.has(c));
+
     const list = [];
     for (const reference of refs) {
       const row = await env.DB.prepare(
-        `SELECT reference, name, email, status, archived_at, applicant_emailed_at, reminder_count
+        `SELECT reference, name, email, status${optional.length ? ', ' + optional.join(', ') : ''}
            FROM applications WHERE reference = ?1`
       ).bind(reference).first();
       if (!row) { list.push({ reference, skipped: 'not found' }); continue; }
-      /* Archived means taken off the list deliberately. A bulk send should not
+
+      /* Archived means taken off the list deliberately. A bulk send must not
        * quietly reach back into it. */
       if (row.archived_at) { list.push({ reference, skipped: 'archived' }); continue; }
+
+      /* Placed means we already found them a home. Asking them for a guarantor
+       * payslip afterwards is the kind of thing that undoes a good result. */
+      if (row.case_closed_at) { list.push({ reference, skipped: 'already placed' }); continue; }
       if ((kind === 'documents' || kind === 'receipt') && row.status !== 'paid') {
         list.push({ reference, skipped: `not paid (${row.status})` }); continue;
       }
