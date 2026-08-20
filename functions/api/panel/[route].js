@@ -754,9 +754,22 @@ const routes = {
       if (u.protocol !== 'https:' && u.protocol !== 'http:') { problems.push('bad protocol'); continue; }
 
       try {
-        const res = await fetch(u.toString(), {
+        const get = (target) => fetch(target, {
           headers: { 'user-agent': 'FastKeysBot/1.0 (+https://fastkeyshousing.com)' },
         });
+
+        let res = await get(u.toString());
+
+        /* A resizing proxy can refuse or time out on an image that is perfectly
+         * fine at its origin, so a failed proxy fetch retries the original
+         * rather than dropping the photo. */
+        if (!res.ok) {
+          const original = String(raw).match(/\/plain\/(https?:\/\/.+?)(?:@[a-z]+)?$/i);
+          if (original) {
+            const retry = await get(original[1]).catch(() => null);
+            if (retry && retry.ok) res = retry;
+          }
+        }
         if (!res.ok) { problems.push(`${u.pathname.slice(-24)} (${res.status})`); continue; }
 
         const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
