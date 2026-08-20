@@ -48,6 +48,16 @@ const EDITABLE = [
   'household', 'date_of_birth', 'available_from', 'duration', 'hobbies', 'notes',
 ];
 
+/* Archived means taken off the books deliberately. Nothing may be emailed to an
+ * archived client from anywhere: they are filtered out of the mail view, the
+ * bulk send skips them, and every single-send route calls this guard so the
+ * rule holds even for a request crafted outside the interface. */
+function refuseIfArchived(row) {
+  if (row && row.archived_at) {
+    throw new Error('This client is archived. Restore them from the Archived tab before emailing.');
+  }
+}
+
 const routes = {
   async list(env, { q, status, sort, closed, docs, budgetMin, budgetMax, archived }) {
     const params_archived = archived;
@@ -309,10 +319,11 @@ const routes = {
     const table = isViewing ? 'viewings' : 'applications';
     const row = await env.DB.prepare(
       `SELECT reference, email, payload, status, stripe_session_id,
-              reminder_count, reminder_sent_at
+              reminder_count, reminder_sent_at, archived_at
          FROM ${table} WHERE reference = ?1`
     ).bind(reference).first();
     if (!row) throw new Error('No record with that reference');
+    refuseIfArchived(row);
 
     if (row.status === 'paid') throw new Error('This one is paid. Do not chase it.');
     if (!['pending', 'failed', 'expired'].includes(row.status)) {
@@ -402,10 +413,50 @@ const routes = {
       throw new Error('Not a valid reference');
     }
     const rows = await env.DB.prepare(
-      `SELECT kind, subject, recipient, sent_by, sent_at, status, error, meta
+      `SELECT id, kind, subject, recipient, sent_by, sent_at, status, error, meta
          FROM email_log WHERE reference = ?1 ORDER BY sent_at DESC LIMIT 100`
     ).bind(reference).all();
     return { rows: rows.results ?? [] };
+  },
+
+  /* Every outgoing email across every client, newest first, for the Sent view.
+   * The body is deliberately left out of the list and fetched per email: three
+   * hundred full bodies is a lot to ship for a screen that shows one line each. */
+  async sentEmails(env, { q }) {
+    const where = [];
+    if (q) {
+      const term = esc(String(q).toLowerCase().slice(0, 80));
+      where.push(
+        `(lower(e.reference) LIKE '%${term}%' OR lower(e.recipient) LIKE '%${term}%'
+          OR lower(e.subject) LIKE '%${term}%' OR lower(COALESCE(a.name,'')) LIKE '%${term}%')`
+      );
+    }
+    const rows = await env.DB.prepare(
+      `SELECT e.id, e.reference, e.kind, e.subject, e.recipient, e.sent_by, e.sent_at,
+              e.status, e.error, a.name
+         FROM email_log e
+         LEFT JOIN applications a ON a.reference = e.reference
+        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+        ORDER BY e.sent_at DESC LIMIT 300`
+    ).all();
+    return { rows: rows.results ?? [] };
+  },
+
+  /* One sent email in full, body included. Emails logged before the body column
+   * existed simply have none, and the interface says so rather than erroring. */
+  async sentEmail(env, { id }) {
+    if (!/^[0-9a-f-]{36}$/.test(id || '')) throw new Error('Bad id');
+    const cols = await env.DB.prepare(`SELECT name FROM pragma_table_info('email_log')`).all();
+    const hasBody = (cols.results ?? []).some((c) => c.name === 'body');
+    const row = await env.DB.prepare(
+      `SELECT e.id, e.reference, e.kind, e.subject, e.recipient, e.sent_by, e.sent_at,
+              e.status, e.error, e.meta${hasBody ? ', e.body' : ''}, a.name
+         FROM email_log e
+         LEFT JOIN applications a ON a.reference = e.reference
+        WHERE e.id = ?1`
+    ).bind(id).first();
+    if (!row) throw new Error('No such email');
+    return { row };
   },
 
   /* Resends the confirmation, which doubles as the receipt: it carries the
@@ -413,9 +464,10 @@ const routes = {
   async sendConfirmation(env, { reference }, user) {
     if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
     const row = await env.DB.prepare(
-      `SELECT reference, email, payload, receipt_url, status FROM applications WHERE reference = ?1`
+      `SELECT reference, email, payload, receipt_url, status, archived_at FROM applications WHERE reference = ?1`
     ).bind(reference).first();
     if (!row) throw new Error('No application with that reference');
+    refuseIfArchived(row);
     if (row.status !== 'paid') throw new Error(`This one is "${row.status}", not paid`);
 
     const application = JSON.parse(row.payload);
@@ -443,9 +495,10 @@ const routes = {
     const reference = String(params.reference || '');
     if (!REF_RE.test(reference)) throw new Error('Not a valid reference');
     const row = await env.DB.prepare(
-      `SELECT reference, name, email, payload FROM applications WHERE reference = ?1`
+      `SELECT reference, name, email, payload, archived_at FROM applications WHERE reference = ?1`
     ).bind(reference).first();
     if (!row) throw new Error('No application with that reference');
+    refuseIfArchived(row);
 
     let application = {};
     try { application = JSON.parse(row.payload); } catch { /* columns will do */ }
@@ -579,6 +632,15 @@ const routes = {
   async sendCustom(env, params, user) {
     const to = String(params.to || '').trim().toLowerCase();
     if (!EMAIL_RE.test(to)) throw new Error('That recipient address does not look right');
+
+    /* A custom email can go to anybody, but when it is filed against a client's
+     * reference the archive rule still applies. */
+    if (REF_RE.test(String(params.reference || ''))) {
+      const client = await env.DB.prepare(
+        `SELECT archived_at FROM applications WHERE reference = ?1`
+      ).bind(params.reference).first();
+      refuseIfArchived(client);
+    }
     const heading = String(params.heading || '').slice(0, 160);
     const body = String(params.body || '');
     if (body.trim().length < 5) throw new Error('Write something in the body');
@@ -835,9 +897,10 @@ const routes = {
     if (listing.status !== 'published') throw new Error('Publish it before sharing it');
 
     const client = await env.DB.prepare(
-      `SELECT reference, name, email, payload FROM applications WHERE reference = ?1`
+      `SELECT reference, name, email, payload, archived_at FROM applications WHERE reference = ?1`
     ).bind(reference).first();
     if (!client) throw new Error('No application with that reference');
+    refuseIfArchived(client);
 
     let application = {};
     try { application = JSON.parse(client.payload); } catch { /* columns will do */ }
@@ -907,9 +970,10 @@ const routes = {
     if (address.length < 4) throw new Error('Which property? An address is required');
 
     const row = await env.DB.prepare(
-      `SELECT reference, name, email, payload, status FROM applications WHERE reference = ?1`
+      `SELECT reference, name, email, payload, status, archived_at FROM applications WHERE reference = ?1`
     ).bind(reference).first();
     if (!row) throw new Error('No application with that reference');
+    refuseIfArchived(row);
     /* Writing to a landlord about somebody who has not paid means promising a
      * tenant we have not been engaged by. */
     if (row.status !== 'paid') throw new Error(`That client is "${row.status}", not paid`);
@@ -1068,9 +1132,10 @@ const routes = {
   async sendDocuments(env, { reference, note }, user) {
     if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
     const row = await env.DB.prepare(
-      `SELECT reference, name, email, payload, status FROM applications WHERE reference = ?1`
+      `SELECT reference, name, email, payload, status, archived_at FROM applications WHERE reference = ?1`
     ).bind(reference).first();
     if (!row) throw new Error('No application with that reference');
+    refuseIfArchived(row);
     if (row.status !== 'paid') throw new Error(`This one is "${row.status}", not paid`);
 
     let application = {};

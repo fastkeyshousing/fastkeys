@@ -733,6 +733,12 @@ textarea.pn-in{min-height:60px; resize:vertical}
 .pn-filters .num{width:92px}
 .pn-mailrow{display:grid; grid-template-columns:1fr auto; gap:5px 12px;
   padding:12px 20px; border-bottom:1px solid rgba(237,239,242,.055); cursor:pointer}
+/* Tickboxes for choosing who a bulk email goes to. */
+.pn-selbar{display:flex; align-items:center; gap:12px; padding:10px 20px;
+  border-bottom:1px solid rgba(237,239,242,.09); font-size:12.8px; color:rgba(237,239,242,.55)}
+.pn-selbar label{display:flex; align-items:center; gap:8px; cursor:pointer}
+.pn-selbar input,.pn-bksel{width:15px; height:15px; accent-color:var(--key); cursor:pointer; flex:none}
+.pn-mailrow .nm{display:flex; align-items:center; gap:9px}
 .pn-mailrow:hover{background:rgba(255,255,255,.035)}
 .pn-mailrow.sel{background:rgba(224,163,94,.12); box-shadow:inset 3px 0 0 var(--key)}
 .pn-ticks{grid-column:1/-1; display:flex; gap:14px; flex-wrap:wrap; margin-top:3px}
@@ -815,12 +821,16 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <div class="pn-tabs">
           <button class="pn-tab on" data-view="clients">Clients</button>
           <button class="pn-tab" data-view="mail">Mail</button>
-          <button class="pn-tab" data-view="tracker">Properties</button>
           <button class="pn-tab" data-view="listings">Noticeboard</button>
+          <button class="pn-tab" data-view="archived">Archived</button>
         </div>
         <select id="pnKind" class="pn-in" style="width:auto">
           <option value="list">Applications</option>
           <option value="viewings">Viewings</option>
+        </select>
+        <select id="pnMailKind" class="pn-in" style="width:auto;display:none">
+          <option value="clients">Clients</option>
+          <option value="sent">Sent emails</option>
         </select>
         <input type="search" id="pnQ" class="pn-in" style="flex:1;min-width:180px"
                placeholder="Search reference, name or email" autocomplete="off">
@@ -834,10 +844,9 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <button class="pn-b gh" id="pnRefresh">Refresh</button>
         <button class="pn-b" id="pnRecon">Reconcile with Stripe</button>
         <button class="pn-b gh" id="pnNew">+ New</button>
-        <button class="pn-b" id="pnNewProp" style="display:none">+ Property</button>
         <button class="pn-b" id="pnNewListing" style="display:none">+ Listing</button>
         <button class="pn-b gh" id="pnImport" style="display:none">Import</button>
-        <button class="pn-b" id="pnBulk" style="display:none">Send to all</button>
+        <button class="pn-b" id="pnBulk" style="display:none">Bulk email</button>
         <button class="pn-b gh" id="pnPaste" style="display:none">Paste a post</button>
       </div>
 
@@ -849,11 +858,6 @@ textarea.pn-in{min-height:60px; resize:vertical}
           <option value="nameDesc">Name Z&ndash;A</option>
           <option value="budget">Budget, high to low</option>
           <option value="budgetAsc">Budget, low to high</option>
-        </select>
-        <select id="pnArchived" class="pn-in">
-          <option value="active">Active clients</option>
-          <option value="only">Archive</option>
-          <option value="all">Active and archived</option>
         </select>
         <select id="pnClosed" class="pn-in">
           <option value="all">Open and placed</option>
@@ -1003,8 +1007,8 @@ textarea.pn-in{min-height:60px; resize:vertical}
     $('#panelView').hidden = true;
     $('#loginView').hidden = false;
   }
-  /* Loaded once so the tracker's client picker is populated without a request
-     every time a form opens. */
+  /* Loaded once so the noticeboard's share-with-a-client picker is populated
+     without a request every time a form opens. */
   function cacheClients(){
     api('list', {sort: 'name'})
       .then(function(d){
@@ -1068,15 +1072,18 @@ textarea.pn-in{min-height:60px; resize:vertical}
   /* ------------------------------------------------------------------ list */
   function load(){
     if(view === 'mail') return loadMail();
-    if(view === 'tracker') return loadTracker();
     if(view === 'listings') return loadListings();
-    selectedKind = $('#pnKind').value;
+    /* The Archived tab is the client list with one filter fixed: only the
+       applications that were deliberately taken off the books. Everywhere else
+       shows active clients only, so nothing archived can be acted on by
+       accident. */
+    selectedKind = view === 'archived' ? 'list' : $('#pnKind').value;
     $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
     api(selectedKind, {
       q: $('#pnQ').value.trim(), status: $('#pnStatus').value,
       sort: $('#pnSort').value, closed: $('#pnClosed').value, docs: $('#pnDocs').value,
       budgetMin: $('#pnBMin').value, budgetMax: $('#pnBMax').value,
-      archived: $('#pnArchived').value
+      archived: view === 'archived' ? 'only' : 'active'
     })
       .then(function(d){
         cachedRows = d.rows;
@@ -1255,7 +1262,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
               '<div class="pn-acts"><button class="pn-b" id="pnUnarch">Restore to the client list</button></div>'
             : '<p class="pn-hint2" style="margin-top:0">Takes them off the client list and keeps ' +
               'everything: documents, emails, payment record, letter. Reversible at any time from ' +
-              'the Archive filter.</p><div class="pn-inline">' +
+              'the Archived tab.</p><div class="pn-inline">' +
               '<input id="pnArchWhy" class="pn-in" placeholder="Why? (optional, e.g. found a place elsewhere)">' +
               '<button class="pn-b" id="pnArchBtn">Archive</button></div>') +
           '<div class="pn-msg2" id="pnArchMsg"></div></div>' +
@@ -1372,8 +1379,12 @@ textarea.pn-in{min-height:60px; resize:vertical}
       if($('#pnArchBtn')) $('#pnArchBtn').onclick = function(){
         api('archive', {reference: r.reference, reason: $('#pnArchWhy').value.trim()}, 'POST')
           .then(function(){
-            note('#pnArchMsg', 'Archived. Set the first filter to "Archive" to find it again.', true);
-            load(); openRow(r.reference);
+            /* The row leaves this list, so the pane closes rather than showing
+               a stale record. It is one click away in the Archived tab. */
+            selected = null;
+            $('#pnPane').innerHTML = '<div class="pn-empty"><div>Archived. ' +
+              'Find them again in the <b>Archived</b> tab.</div></div>';
+            load();
           })
           .catch(function(e){ note('#pnArchMsg', e.message, false); });
       };
@@ -1381,8 +1392,10 @@ textarea.pn-in{min-height:60px; resize:vertical}
       if($('#pnUnarch')) $('#pnUnarch').onclick = function(){
         api('unarchive', {reference: r.reference}, 'POST')
           .then(function(){
-            note('#pnArchMsg', 'Restored to the client list.', true);
-            load(); openRow(r.reference);
+            selected = null;
+            $('#pnPane').innerHTML = '<div class="pn-empty"><div>Restored. ' +
+              'They are back in the <b>Clients</b> tab.</div></div>';
+            load();
           })
           .catch(function(e){ note('#pnArchMsg', e.message, false); });
       };
@@ -1614,149 +1627,12 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
   }
 
-  /* ------------------------------------------------------- property tracker */
-  var PROP_STATUS = ['shortlisted','applied','viewing_booked','viewed','offered','accepted','rejected','withdrawn','gone'];
-  var propRows = [];
-
-  function loadTracker(){
-    $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
-    api('properties', {q: $('#pnQ').value.trim()})
-      .then(function(d){
-        propRows = d.rows;
-        var counts = d.counts || [];
-        var live = counts.filter(function(c){ return ['applied','viewing_booked','viewed','offered'].indexOf(c.status) !== -1; })
-                         .reduce(function(s,c){ return s + c.n; }, 0);
-        var won = (counts.filter(function(c){ return c.status === 'accepted'; })[0] || {n:0}).n;
-        $('#pnStats').innerHTML = '<span><b>' + d.rows.length + '</b> tracked</span>' +
-          '<span><b>' + live + '</b> in play</span>' +
-          (won ? '<span><b>' + won + '</b> accepted</span>' : '');
-
-        if(!d.rows.length){
-          $('#pnList').innerHTML = '<div class="pn-empty"><div>Nothing tracked yet.<br>' +
-            'Press <b>+ Property</b> to record one you applied to.</div></div>';
-          return;
-        }
-        $('#pnList').innerHTML = d.rows.map(function(r){
-          return '<div class="pn-r" data-id="' + esc(r.id) + '">' +
-            '<span class="nm">' + esc(r.address) + '</span>' +
-            '<span class="pn-pill ' + esc(r.status) + '">' + esc(r.status.replace(/_/g,' ')) + '</span>' +
-            '<span class="rf">' + esc(r.client_name || r.reference) + '</span>' +
-            '<span class="mt">' + [r.rent, r.landlord, r.applied_at && ('applied ' + r.applied_at)]
-              .filter(Boolean).map(esc).join(' \u00b7 ') + '</span></div>';
-        }).join('');
-        Array.prototype.forEach.call(document.querySelectorAll('.pn-r'), function(el){
-          el.addEventListener('click', function(){ openProperty(el.dataset.id); });
-        });
-      })
-      .catch(function(e){ $('#pnList').innerHTML = '<div class="pn-empty">' + esc(e.message) + '</div>'; });
-  }
-
-  function propertyForm(r){
-    var f = r || {};
-    var field = function(id, label, val, ph, wide){
-      return '<div' + (wide ? ' class="wide"' : '') + '><label for="tp_' + id + '">' + label + '</label>' +
-        '<input id="tp_' + id + '" class="pn-in" value="' + esc(val || '') + '" placeholder="' + esc(ph || '') + '"></div>';
-    };
-    return '<div class="pn-grid">' +
-      '<div class="wide"><label for="tp_reference">Applied for which client</label>' +
-        '<select id="tp_reference" class="pn-in">' +
-        (f.reference ? '' : '<option value="">Choose a client\u2026</option>') +
-        clientOptions(f.reference) + '</select></div>' +
-      field('address', 'Address', f.address, 'Brusselsestraat 12, Maastricht', true) +
-      field('listing_url', 'Listing link', f.listing_url, 'https://...', true) +
-      field('rent', 'Rent', f.rent, '\u20ac950 incl.') +
-      field('deposit', 'Deposit', f.deposit, '\u20ac950') +
-      field('available_from', 'Available from', f.available_from, '1 September') +
-      '<div><label for="tp_status">Status</label><select id="tp_status" class="pn-in">' +
-        PROP_STATUS.map(function(s){
-          return '<option value="' + s + '"' + (f.status === s ? ' selected' : '') + '>' + s.replace(/_/g,' ') + '</option>';
-        }).join('') + '</select></div>' +
-      field('landlord', 'Landlord or agency', f.landlord) +
-      field('landlord_email', 'Their email', f.landlord_email) +
-      field('landlord_phone', 'Their phone', f.landlord_phone) +
-      field('applied_at', 'Applied on', f.applied_at, '11 Aug') +
-      field('viewing_at', 'Viewing on', f.viewing_at, '14 Aug, 17:30') +
-      field('decision_at', 'Decision on', f.decision_at) +
-      '<div class="wide"><label for="tp_outcome_note">Outcome</label>' +
-        '<input id="tp_outcome_note" class="pn-in" value="' + esc(f.outcome_note || '') + '" placeholder="Landlord went with someone with a Dutch guarantor"></div>' +
-      '<div class="wide"><label for="tp_notes">Notes</label>' +
-        '<textarea id="tp_notes" class="pn-in" style="min-height:90px">' + esc(f.notes || '') + '</textarea></div>' +
-      '</div>';
-  }
-
+  /* Used by the noticeboard's share-with-a-client picker. */
   function clientOptions(selected){
     return (window.__clients || []).map(function(c){
       return '<option value="' + esc(c.reference) + '"' + (c.reference === selected ? ' selected' : '') + '>' +
         esc(c.name) + ' (' + esc(c.reference) + ')</option>';
     }).join('');
-  }
-
-  function collectProperty(id){
-    var v = function(k){ var e = $('#tp_' + k); return e ? e.value.trim() : ''; };
-    return {
-      id: id || undefined, reference: v('reference'), address: v('address'),
-      listing_url: v('listing_url'), rent: v('rent'), deposit: v('deposit'),
-      available_from: v('available_from'), status: v('status'), landlord: v('landlord'),
-      landlord_email: v('landlord_email'), landlord_phone: v('landlord_phone'),
-      applied_at: v('applied_at'), viewing_at: v('viewing_at'), decision_at: v('decision_at'),
-      outcome_note: v('outcome_note'), notes: v('notes')
-    };
-  }
-
-  function openProperty(id){
-    var r = propRows.filter(function(x){ return x.id === id; })[0];
-    if(!r) return;
-    selected = id;
-    Array.prototype.forEach.call(document.querySelectorAll('.pn-r'), function(el){
-      el.classList.toggle('sel', el.dataset.id === id);
-    });
-    $('#pnPane').classList.add('open');
-    $('#pnPane').innerHTML =
-      '<h2 class="pn-h2">' + esc(r.address) + '</h2>' +
-      '<p class="pn-hint2" style="margin-top:6px">For ' + esc(r.client_name || r.reference) +
-      ' \u00b7 added by ' + esc(r.created_by) + ' \u00b7 ' + esc(when(r.created_at)) + '</p>' +
-      (r.listing_url ? '<p style="margin-top:8px"><a href="' + esc(r.listing_url) +
-        '" target="_blank" rel="noopener" style="color:var(--key);font-size:14.5px">Open the listing &rarr;</a></p>' : '') +
-      '<div class="pn-sec"><h3>Details</h3>' + propertyForm(r) +
-      '<div class="pn-acts"><button class="pn-b" id="tpSave">Save</button>' +
-      (isOwner() ? '<button class="pn-b rd" id="tpDel">Delete</button>' : '') + '</div>' +
-      '<div class="pn-msg2" id="tpMsg"></div></div>';
-
-    $('#tpSave').onclick = function(){
-      api('propertySave', collectProperty(id), 'POST')
-        .then(function(){ note('#tpMsg', 'Saved.', true); loadTracker(); })
-        .catch(function(e){ note('#tpMsg', e.message, false); });
-    };
-    if($('#tpDel')) $('#tpDel').onclick = function(){
-      if(!confirm('Remove this property from the tracker?')) return;
-      api('propertyDelete', {id: id}, 'POST').then(function(){
-        selected = null;
-        $('#pnPane').innerHTML = '<div class="pn-empty">Removed.</div>';
-        loadTracker();
-      }).catch(function(e){ note('#tpMsg', e.message, false); });
-    };
-  }
-
-  function newProperty(){
-    $('#pnModalBox').innerHTML =
-      '<h3 style="font-size:17px;margin-bottom:6px">Track a property</h3>' +
-      '<p class="pn-hint2" style="margin-top:0">One row per property per client, so ' +
-      '"have we already applied to this one for them" has an answer.</p>' +
-      propertyForm(null) +
-      '<div class="pn-acts"><button class="pn-b" id="tpNewGo">Add it</button>' +
-      '<button class="pn-b gh" id="tpNewCancel">Cancel</button></div>' +
-      '<div class="pn-msg2" id="tpNewMsg"></div>';
-    $('#pnModal').classList.add('open');
-    $('#tpNewCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
-    $('#tpNewGo').onclick = function(){
-      api('propertySave', collectProperty(null), 'POST')
-        .then(function(res){
-          $('#pnModal').classList.remove('open');
-          loadTracker();
-          setTimeout(function(){ openProperty(res.id); }, 500);
-        })
-        .catch(function(e){ note('#tpNewMsg', e.message, false); });
-    };
   }
 
   /* ------------------------------------------------------------ noticeboard
@@ -2246,14 +2122,23 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
   }
 
-  /* Sending the same email to everybody at once.
-     Always previewed first: this is the one action in the panel with no undo,
-     and the preview is what turns "send to all" from a leap into a decision. */
+  /* Sending the same email to many clients at once.
+     Who gets it is chosen with the tickboxes in the mail list; with nothing
+     ticked it goes to everyone shown, which is the old send-to-all. Always
+     previewed first: this is the one action in the panel with no undo, and the
+     preview is what turns a bulk send from a leap into a decision. */
   function bulkDialog(){
+    var chosen = bulkChosen();
+    var toAll = !bulkSel.size;
     $('#pnModalBox').innerHTML =
-      '<h3 style="font-size:17px;margin-bottom:6px">Send to all clients</h3>' +
-      '<p class="pn-hint2" style="margin-top:0">One email each, sent separately, so nobody sees ' +
-      'anyone else\u2019s address. Archived clients are always skipped.</p>' +
+      '<h3 style="font-size:17px;margin-bottom:6px">Bulk email</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">' +
+      (toAll
+        ? 'No boxes are ticked, so this goes to <b>everyone shown</b> (' + chosen.length + '). ' +
+          'Tick clients in the list first to narrow it down.'
+        : 'Going to the <b>' + chosen.length + ' ticked</b> client' + (chosen.length === 1 ? '' : 's') + '.') +
+      ' One email each, sent separately, so nobody sees anyone else\u2019s address. ' +
+      'Archived clients are always skipped.</p>' +
       '<div class="pn-grid">' +
       '<div class="wide"><label for="bk_kind">Which email</label>' +
       '<select id="bk_kind" class="pn-in">' +
@@ -2271,10 +2156,8 @@ textarea.pn-in{min-height:60px; resize:vertical}
     $('#bkCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
 
     var gather = function(){
-      /* Whoever the current filter and search show. "All" means what is on
-         screen, not the whole database, so a search narrows the send. */
       return {kind: $('#bk_kind').value, note: $('#bk_note').value.trim(),
-              references: (window.__mailRows || []).map(function(r){ return r.reference; })};
+              references: bulkChosen()};
     };
 
     $('#bkCheck').onclick = function(){
@@ -2297,6 +2180,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
           var btn = $('#bkGo'); btn.disabled = true; btn.textContent = 'Sending\u2026';
           api('sendBulk', gather(), 'POST').then(function(res){
             $('#pnModal').classList.remove('open');
+            bulkSel.clear();
             loadMail();
             alert('Sent to ' + res.sent + '.' +
               (res.failed && res.failed.length
@@ -2311,24 +2195,61 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
   }
 
+  /* Which clients are ticked for a bulk email. Kept across refreshes of the
+     list, so ticking, searching, and ticking more all add up. */
+  var bulkSel = new Set();
+  function bulkChosen(){
+    /* Ticked clients; with nothing ticked, everyone currently shown. */
+    var shown = (window.__mailRows || []).map(function(r){ return r.reference; });
+    if(!bulkSel.size) return shown;
+    return shown.filter(function(ref){ return bulkSel.has(ref); });
+  }
+  function bulkCount(){
+    var n = bulkChosen().length;
+    var el = $('#pnSelCount');
+    if(el) el.textContent = bulkSel.size
+      ? n + ' selected'
+      : 'none ticked \u2014 a bulk email would go to all ' + n + ' shown';
+    var all = $('#pnSelAll');
+    if(all) all.checked = bulkSel.size > 0 && n === (window.__mailRows || []).length;
+  }
+
   function loadMail(){
+    if($('#pnMailKind').value === 'sent') return loadSent();
     $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
     api('emails', {q: $('#pnQ').value.trim()})
       .then(function(d){
         window.__mailRows = d.rows;
+        /* Ticks for rows that fell out of the list (searched away, archived,
+           deleted) are dropped, so a bulk send can never reach somebody who is
+           not on screen to be seen. */
+        var visible = new Set(d.rows.map(function(r){ return r.reference; }));
+        bulkSel.forEach(function(ref){ if(!visible.has(ref)) bulkSel.delete(ref); });
+
         var pending = d.rows.filter(function(r){ return r.status === 'paid' && !r.applicant_emailed_at; }).length;
         $('#pnStats').innerHTML = '<span><b>' + d.rows.length + '</b> clients</span>' +
           (pending ? '<span class="warn"><b>' + pending + '</b> awaiting a receipt</span>' : '');
         if(!d.rows.length){ $('#pnList').innerHTML = '<div class="pn-empty">Nothing matches.</div>'; return; }
 
-        $('#pnList').innerHTML = d.rows.map(function(r){
+        var canPick = isOwner();
+        $('#pnList').innerHTML =
+          (canPick
+            ? '<div class="pn-selbar"><label><input type="checkbox" id="pnSelAll"> Select all</label>' +
+              '<span id="pnSelCount"></span></div>'
+            : '') +
+          d.rows.map(function(r){
           function tick(on, label, bad){
             return '<span class="pn-tick' + (on ? ' on' : (bad ? ' bad' : '')) + '">' +
               (on ? '\u2713' : '\u25cb') + ' ' + label + '</span>';
           }
           return '<div class="pn-mailrow' + (r.case_closed_at ? ' closed' : '') +
             '" data-ref="' + esc(r.reference) + '">' +
-            '<span class="nm">' + esc(r.name) + '</span>' +
+            '<span class="nm">' +
+              (canPick
+                ? '<input type="checkbox" class="pn-bksel" data-ref="' + esc(r.reference) + '"' +
+                  (bulkSel.has(r.reference) ? ' checked' : '') + '>'
+                : '') +
+              esc(r.name) + '</span>' +
             '<span class="pn-pill ' + esc(r.status) + '">' + esc(r.status) + '</span>' +
             '<span class="mt" style="grid-column:1/-1">' + esc(r.email) + '</span>' +
             '<div class="pn-ticks">' +
@@ -2343,8 +2264,91 @@ textarea.pn-in{min-height:60px; resize:vertical}
         Array.prototype.forEach.call(document.querySelectorAll('.pn-mailrow'), function(el){
           el.addEventListener('click', function(){ openMail(el.dataset.ref, d.rows); });
         });
+        /* The tickbox chooses; it must not also open the pane. */
+        Array.prototype.forEach.call(document.querySelectorAll('.pn-bksel'), function(cb){
+          cb.addEventListener('click', function(e){ e.stopPropagation(); });
+          cb.addEventListener('change', function(){
+            if(cb.checked) bulkSel.add(cb.dataset.ref); else bulkSel.delete(cb.dataset.ref);
+            bulkCount();
+          });
+        });
+        if($('#pnSelAll')) $('#pnSelAll').addEventListener('change', function(){
+          var on = this.checked;
+          Array.prototype.forEach.call(document.querySelectorAll('.pn-bksel'), function(cb){
+            cb.checked = on;
+            if(on) bulkSel.add(cb.dataset.ref); else bulkSel.delete(cb.dataset.ref);
+          });
+          bulkCount();
+        });
+        bulkCount();
       })
       .catch(function(e){ $('#pnList').innerHTML = '<div class="pn-empty">' + esc(e.message) + '</div>'; });
+  }
+
+  /* ------------------------------------------------------------ sent emails
+     Every outgoing email, newest first, across all clients. The list is the
+     log; clicking one shows the whole thing, body included. */
+  var sentRows = [];
+  function loadSent(){
+    $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
+    api('sentEmails', {q: $('#pnQ').value.trim()})
+      .then(function(d){
+        sentRows = d.rows;
+        var failed = d.rows.filter(function(r){ return r.status === 'failed'; }).length;
+        $('#pnStats').innerHTML = '<span><b>' + d.rows.length + '</b> sent</span>' +
+          (failed ? '<span class="warn"><b>' + failed + '</b> failed</span>' : '');
+        if(!d.rows.length){
+          $('#pnList').innerHTML = '<div class="pn-empty">Nothing has been sent yet.</div>';
+          return;
+        }
+        $('#pnList').innerHTML = d.rows.map(function(r){
+          return '<div class="pn-mailrow" data-id="' + esc(r.id) + '">' +
+            '<span class="nm">' + esc(r.subject) + '</span>' +
+            '<span class="pn-logkind' + (r.status === 'failed' ? ' failed' : '') + '">' + esc(r.kind) + '</span>' +
+            '<span class="mt" style="grid-column:1/-1">to ' + esc(r.recipient) +
+              (r.name ? ' \u00b7 ' + esc(r.name) : '') +
+              ' \u00b7 ' + esc(when(r.sent_at)) + ' \u00b7 by ' + esc(r.sent_by) + '</span>' +
+            '</div>';
+        }).join('');
+        Array.prototype.forEach.call(document.querySelectorAll('.pn-mailrow'), function(el){
+          el.addEventListener('click', function(){ openSent(el.dataset.id); });
+        });
+      })
+      .catch(function(e){ $('#pnList').innerHTML = '<div class="pn-empty">' + esc(e.message) + '</div>'; });
+  }
+
+  function openSent(id){
+    var r = sentRows.filter(function(x){ return x.id === id; })[0];
+    if(!r) return;
+    selected = id;
+    Array.prototype.forEach.call(document.querySelectorAll('.pn-mailrow'), function(el){
+      el.classList.toggle('sel', el.dataset.id === id);
+    });
+    $('#pnPane').classList.add('open');
+    $('#pnPane').innerHTML =
+      '<h2 class="pn-h2">' + esc(r.subject) + '</h2>' +
+      '<p class="pn-hint2" style="margin-top:6px">' +
+        '<span class="pn-logkind' + (r.status === 'failed' ? ' failed' : '') + '">' + esc(r.kind) + '</span> ' +
+        ' to <b style="color:var(--chalk)">' + esc(r.recipient) + '</b>' +
+        (r.name ? ' (' + esc(r.name) + ')' : '') +
+        ' \u00b7 ' + esc(when(r.sent_at)) + ' \u00b7 by ' + esc(r.sent_by) + '</p>' +
+      (r.reference && r.reference !== 'ADHOC'
+        ? '<p class="pn-hint2" style="margin-top:2px">Reference <code style="color:var(--key)">' + esc(r.reference) + '</code></p>' : '') +
+      (r.status === 'failed'
+        ? '<p class="pn-msg2 show err" style="margin-top:10px">This send failed' + (r.error ? ': ' + esc(r.error) : '.') + '</p>' : '') +
+      '<div class="pn-sec"><h3>What was sent</h3><div id="sentBody">' +
+      '<p class="pn-hint2" style="margin:0">Loading\u2026</p></div></div>';
+
+    api('sentEmail', {id: id})
+      .then(function(d){
+        var box = $('#sentBody');
+        if(!box) return;
+        box.innerHTML = d.row && d.row.body
+          ? '<div class="pn-pre" style="max-height:520px">' + esc(d.row.body) + '</div>'
+          : '<p class="pn-hint2" style="margin:0">This email predates body logging, so only the ' +
+            'subject and recipient were kept.</p>';
+      })
+      .catch(function(e){ if($('#sentBody')) $('#sentBody').innerHTML = '<p class="pn-hint2" style="margin:0">' + esc(e.message) + '</p>'; });
   }
 
   function openMail(ref, rows){
@@ -2664,13 +2668,12 @@ textarea.pn-in{min-height:60px; resize:vertical}
   });
 
   var t;
-  ['#pnSort','#pnClosed','#pnDocs','#pnArchived'].forEach(function(s){
+  ['#pnSort','#pnClosed','#pnDocs'].forEach(function(s){
     $(s).addEventListener('change', load);
   });
   ['#pnBMin','#pnBMax'].forEach(function(s){
     $(s).addEventListener('input', function(){ clearTimeout(t); t = setTimeout(load, 450); });
   });
-  $('#pnNewProp').addEventListener('click', newProperty);
   $('#pnNewListing').addEventListener('click', function(){ listingForm(null); });
   $('#pnImport').addEventListener('click', importDialog);
   $('#pnBulk').addEventListener('click', bulkDialog);
@@ -2725,13 +2728,12 @@ textarea.pn-in{min-height:60px; resize:vertical}
   $('#pnClear').addEventListener('click', function(){
     $('#pnQ').value = ''; $('#pnStatus').value = 'all'; $('#pnSort').value = 'recent';
     $('#pnClosed').value = 'all'; $('#pnDocs').value = 'all';
-    $('#pnArchived').value = 'active';
     $('#pnBMin').value = ''; $('#pnBMax').value = '';
     load();
   });
 
-  /* Switching between the client view and the mail view. The two share the list
-     but answer different questions, so the toolbar changes with them. */
+  /* Switching between the views. They share the list but answer different
+     questions, so the toolbar changes with them. */
   Array.prototype.forEach.call(document.querySelectorAll('.pn-tab'), function(tab){
     tab.addEventListener('click', function(){
       view = tab.dataset.view;
@@ -2739,21 +2741,23 @@ textarea.pn-in{min-height:60px; resize:vertical}
         x.classList.toggle('on', x === tab);
       });
       var clients = view === 'clients';
-      var tracker = view === 'tracker';
+      var archived = view === 'archived';
       $('#pnKind').style.display = clients ? '' : 'none';
-      $('#pnStatus').style.display = clients ? '' : 'none';
-      $('#pnFilters').style.display = clients ? '' : 'none';
+      $('#pnMailKind').style.display = view === 'mail' ? '' : 'none';
+      $('#pnStatus').style.display = (clients || archived) ? '' : 'none';
+      $('#pnFilters').style.display = (clients || archived) ? '' : 'none';
       if($('#pnRecon')) $('#pnRecon').style.display = (clients && isOwner()) ? '' : 'none';
       if($('#pnNew')) $('#pnNew').style.display = (clients && isOwner()) ? '' : 'none';
-      if($('#pnNewProp')) $('#pnNewProp').style.display = tracker ? '' : 'none';
       if($('#pnNewListing')) $('#pnNewListing').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
       if($('#pnImport')) $('#pnImport').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
-      if($('#pnBulk')) $('#pnBulk').style.display = (view === 'mail' && isOwner()) ? '' : 'none';
+      if($('#pnBulk')) $('#pnBulk').style.display =
+        (view === 'mail' && $('#pnMailKind').value === 'clients' && isOwner()) ? '' : 'none';
       if($('#pnPaste')) $('#pnPaste').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
       selected = null;
       $('#pnPane').innerHTML = '<div class="pn-empty"><div>' +
         (view === 'mail' ? 'Select somebody to see what has been sent to them.'
-         : tracker ? 'Select a property, or add one.' : 'Select an entry.') + '</div></div>';
+         : archived ? 'Select an archived client to see everything we hold,<br>or to restore them.'
+         : 'Select an entry.') + '</div></div>';
       load();
     });
   });
@@ -2764,6 +2768,15 @@ textarea.pn-in{min-height:60px; resize:vertical}
   $('#pnKind').addEventListener('change', function(){
     selected = null;
     $('#pnPane').innerHTML = '<div class="pn-empty"><div>Select an entry.</div></div>';
+    load();
+  });
+  $('#pnMailKind').addEventListener('change', function(){
+    selected = null;
+    if($('#pnBulk')) $('#pnBulk').style.display =
+      (this.value === 'clients' && isOwner()) ? '' : 'none';
+    $('#pnPane').innerHTML = '<div class="pn-empty"><div>' +
+      (this.value === 'sent' ? 'Select an email to read what was sent.'
+       : 'Select somebody to see what has been sent to them.') + '</div></div>';
     load();
   });
 

@@ -333,7 +333,10 @@ button{font:inherit; color:inherit}
 .contact-h{font-size:clamp(30px,4.2vw,48px); font-weight:500; margin:18px 0 20px}
 .contact-grid{display:grid; grid-template-columns:.95fr 1.05fr; gap:clamp(36px,6vw,80px); align-items:start}
 .form{display:grid; gap:16px}
-.field{display:grid; gap:7px}
+/* align-content:start keeps each control at its natural height. Without it a
+   grid cell stretches to match the tallest sibling in the row, so the household
+   select grew to fill the extra height the date-of-birth hint creates. */
+.field{display:grid; gap:7px; align-content:start}
 .field label{font-size:13px; font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:rgba(237,239,242,.5)}
 .field input,.field select,.field textarea{
   font:inherit; font-size:16px; color:var(--chalk);
