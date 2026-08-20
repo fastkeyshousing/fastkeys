@@ -831,6 +831,8 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <button class="pn-b gh" id="pnNew">+ New</button>
         <button class="pn-b" id="pnNewProp" style="display:none">+ Property</button>
         <button class="pn-b" id="pnNewListing" style="display:none">+ Listing</button>
+        <button class="pn-b gh" id="pnImport" style="display:none">Import</button>
+        <button class="pn-b gh" id="pnPaste" style="display:none">Paste a post</button>
       </div>
 
       <div class="pn-filters" id="pnFilters">
@@ -1933,6 +1935,139 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
   }
 
+  /* Import turns a post or a page into a draft listing. It never saves on its
+     own: the parser guesses, and a public listing is a claim about somebody
+     else's property, so a person checks it first. */
+  function importDialog(){
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">Import a listing</h3>' +
+      '<div class="pn-tabs" style="margin:10px 0 14px">' +
+      '<button class="pn-tab on" data-imp="text">Paste a post</button>' +
+      '<button class="pn-tab" data-imp="url">Paste a link</button>' +
+      '</div>' +
+
+      '<div id="impText">' +
+      '<p class="pn-hint2" style="margin-top:0">For a Facebook post. Copy the whole post and paste ' +
+      'it here. Nothing is fetched from Facebook, so no login is involved &mdash; you are pasting ' +
+      'text you are already looking at. Photos have to be saved from the post and uploaded ' +
+      'afterwards, because Facebook image links expire.</p>' +
+      '<textarea id="imp_text" class="pn-in" style="min-height:170px" ' +
+      'placeholder="Paste the whole post, including the price, address and dates."></textarea></div>' +
+
+      '<div id="impUrl" hidden>' +
+      '<p class="pn-hint2" style="margin-top:0">For a page you have permission to import, such as ' +
+      'RentHunter. The page is fetched by the server, so no browser login and no cookies. It only ' +
+      'works on pages that are public; anything behind a login will come back empty.</p>' +
+      '<input id="imp_url" class="pn-in" placeholder="https://..."></div>' +
+
+      '<div class="pn-grid" style="margin-top:12px">' +
+      '<div class="wide"><label for="imp_note">Permission note</label>' +
+      '<input id="imp_note" class="pn-in" placeholder="e.g. Jan at RentHunter agreed by email, 19 Aug 2026">' +
+      '<p class="pn-hint2">Stored with the listing. This is the only record of why their content ' +
+      'is on your site, and it is the first thing you would want if anyone ever asks.</p></div>' +
+      '</div>' +
+
+      '<div class="pn-acts"><button class="pn-b" id="impGo">Read it</button>' +
+      '<button class="pn-b gh" id="impCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="impMsg"></div><div id="impResult"></div>';
+
+    $('#pnModal').classList.add('open');
+    var mode = 'text';
+    Array.prototype.forEach.call($('#pnModalBox').querySelectorAll('.pn-tab'), function(tab){
+      tab.addEventListener('click', function(){
+        mode = tab.dataset.imp;
+        Array.prototype.forEach.call($('#pnModalBox').querySelectorAll('.pn-tab'), function(x){
+          x.classList.toggle('on', x === tab);
+        });
+        $('#impText').hidden = mode !== 'text';
+        $('#impUrl').hidden = mode !== 'url';
+      });
+    });
+    $('#impCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+
+    $('#impGo').onclick = function(){
+      var btn = $('#impGo');
+      btn.disabled = true; btn.textContent = 'Reading\u2026';
+      var body = mode === 'text'
+        ? {mode: 'text', text: $('#imp_text').value}
+        : {mode: 'url', url: $('#imp_url').value.trim()};
+      api('import', body, 'POST')
+        .then(function(res){
+          btn.disabled = false; btn.textContent = 'Read it';
+          showDraft(res, $('#imp_note').value.trim());
+        })
+        .catch(function(e){
+          btn.disabled = false; btn.textContent = 'Read it';
+          note('#impMsg', e.message, false);
+        });
+    };
+  }
+
+  /* What the parser made of it, as an editable form. Anything it could not
+     work out is simply blank rather than filled with a guess. */
+  function showDraft(res, permissionNote){
+    var d = res.draft || {};
+    var found = ['title','address','city','rent','deposit','available_from','size','rooms',
+                 'furnished','registration','contact_email','contact_phone']
+      .filter(function(k){ return d[k]; });
+
+    $('#impResult').innerHTML =
+      '<div class="pn-sec"><h3>What it found</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">' + found.length + ' of 12 fields. ' +
+      'Check them, fill the blanks, then save. ' +
+      (res.note ? esc(res.note) : '') + '</p>' +
+      listingFields({
+        title: d.title, address: d.address, city: d.city || 'Maastricht',
+        rent: d.rent, deposit: d.deposit, available_from: d.available_from,
+        size: d.size, rooms: d.rooms, furnished: d.furnished,
+        registration: d.registration, description: d.description,
+        contact_email: d.contact_email, contact_phone: d.contact_phone,
+        external_url: d.source_url || '', submitted_by: 'landlord', status: 'draft',
+        images: '[]'
+      }) +
+      ((res.images && res.images.length)
+        ? '<p class="pn-hint2">' + res.images.length + ' photo(s) found on the page. They will be ' +
+          'copied into your own storage when you save, so they cannot break later.</p>'
+        : '') +
+      '<div class="pn-acts"><button class="pn-b" id="impSave">Create the listing</button></div>' +
+      '<div class="pn-msg2" id="impSaveMsg"></div></div>';
+
+    $('#impSave').onclick = function(){
+      var btn = $('#impSave');
+      btn.disabled = true; btn.textContent = 'Saving\u2026';
+      var payload = collectListing(null);
+      payload.source = res.source || 'other';
+      payload.source_url = d.source_url || '';
+      payload.source_note = permissionNote || '';
+      api('listingSave', payload, 'POST')
+        .then(function(saved){
+          var imgs = (res.images || []).slice(0, 30);
+          if(!imgs.length){
+            $('#pnModal').classList.remove('open');
+            loadListings();
+            setTimeout(function(){ openListing(saved.id); }, 500);
+            return;
+          }
+          btn.textContent = 'Fetching photos\u2026';
+          return api('listingFetchImages', {id: saved.id, urls: imgs}, 'POST')
+            .then(function(r){
+              $('#pnModal').classList.remove('open');
+              loadListings();
+              setTimeout(function(){ openListing(saved.id); }, 500);
+              note('#pnArchMsg', '', true);
+              if(r.problems && r.problems.length){
+                alert('Listing created. ' + r.saved + ' of ' + r.attempted + ' photos saved.\n\n' +
+                      'Could not fetch: ' + r.problems.join('; '));
+              }
+            });
+        })
+        .catch(function(e){
+          btn.disabled = false; btn.textContent = 'Create the listing';
+          note('#impSaveMsg', e.message, false);
+        });
+    };
+  }
+
   function listingForm(l){
     $('#pnModalBox').innerHTML =
       '<h3 style="font-size:17px;margin-bottom:6px">' + (l ? 'Edit listing' : 'Add a listing') + '</h3>' +
@@ -2423,6 +2558,54 @@ textarea.pn-in{min-height:60px; resize:vertical}
   });
   $('#pnNewProp').addEventListener('click', newProperty);
   $('#pnNewListing').addEventListener('click', function(){ listingForm(null); });
+  $('#pnImport').addEventListener('click', importDialog);
+
+  /* Paste a post you already read, and the fields fill themselves in. The
+     parsing happens server-side so there is one implementation, and every value
+     lands in an editable field because a guess should always be correctable. */
+  $('#pnPaste').addEventListener('click', function(){
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">Paste a post</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">Copy a post you have read, paste it here, and the ' +
+      'listing form fills itself in. Check what it guessed before saving.</p>' +
+      '<textarea id="pp_text" class="pn-in" style="min-height:200px" ' +
+      'placeholder="Paste the whole post, including the contact line and any photo links."></textarea>' +
+      '<div class="pn-acts"><button class="pn-b" id="ppGo">Read it</button>' +
+      '<button class="pn-b gh" id="ppCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="ppMsg"></div>';
+    $('#pnModal').classList.add('open');
+    $('#ppCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+    $('#ppGo').onclick = function(){
+      api('parsePost', {text: $('#pp_text').value}, 'POST')
+        .then(function(res){
+          var d = res.parsed;
+          if(d.kind === 'seeking'){
+            note('#ppMsg', 'This reads like somebody looking for a room, not offering one. ' +
+              'Add them as a client instead, from the Clients tab.', false);
+            return;
+          }
+          $('#pnModal').classList.remove('open');
+          /* Straight into the normal listing form, pre-filled. */
+          listingForm(null);
+          setTimeout(function(){
+            var set = function(id, v){ var e = $('#ls_' + id); if(e && v) e.value = v; };
+            set('address', d.address); set('rent', d.rent); set('size', d.size);
+            set('available_from', d.available_from); set('registration', d.registration);
+            set('contact_email', d.contact_email); set('contact_phone', d.contact_phone);
+            set('external_url', d.external_url); set('description', d.description);
+            set('images', (d.images || []).join('\n'));
+            if(d.address && $('#ls_title') && !$('#ls_title').value){
+              $('#ls_title').value = d.address.split(',')[0];
+            }
+            var box = $('#pnModalBox');
+            if(box) box.insertAdjacentHTML('afterbegin',
+              '<p class="pn-msg2 show" style="margin-bottom:12px">Filled in from the post. ' +
+              'Check every field, especially the address and the rent.</p>');
+          }, 260);
+        })
+        .catch(function(e){ note('#ppMsg', e.message, false); });
+    };
+  });
 
   $('#pnClear').addEventListener('click', function(){
     $('#pnQ').value = ''; $('#pnStatus').value = 'all'; $('#pnSort').value = 'recent';
@@ -2449,6 +2632,8 @@ textarea.pn-in{min-height:60px; resize:vertical}
       if($('#pnNew')) $('#pnNew').style.display = (clients && isOwner()) ? '' : 'none';
       if($('#pnNewProp')) $('#pnNewProp').style.display = tracker ? '' : 'none';
       if($('#pnNewListing')) $('#pnNewListing').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
+      if($('#pnImport')) $('#pnImport').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
+      if($('#pnPaste')) $('#pnPaste').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
       selected = null;
       $('#pnPane').innerHTML = '<div class="pn-empty"><div>' +
         (view === 'mail' ? 'Select somebody to see what has been sent to them.'

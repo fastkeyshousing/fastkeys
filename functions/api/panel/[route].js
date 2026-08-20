@@ -29,6 +29,7 @@ const STATUSES = ['pending', 'paid', 'expired', 'failed'];
  * creates one, or removes one stays with the owner: a viewing schedule is
  * day-to-day work, an applicant's income figure is not. */
 const OWNER_ONLY = new Set(['update', 'remove', 'create', 'updateEmail', 'reconcile',
+  'listingFetchImages',
   'archive', 'unarchive', 'deletions',
   /* A cold email naming a client's income, sent outside the business, with
    * something offered in return. Owner's decision. */
@@ -617,6 +618,7 @@ const routes = {
     return { ok: true, sentTo: to, attached: attachments.length };
   },
 
+
   /* ------------------------------------------------------------- listings */
   async listings(env, { status, q }) {
     const where = [];
@@ -690,6 +692,11 @@ const routes = {
       contact_phone: contactPhone.slice(0, 40),
       external_url: String(params.external_url || '').slice(0, 500),
       expires_at: String(params.expires_at || '').slice(0, 40),
+      source: ['facebook', 'renthunter', 'manual', 'other'].includes(params.source) ? params.source : 'manual',
+      source_url: String(params.source_url || '').slice(0, 500),
+      /* Who agreed to this being here, and when. Written at import so it is not
+       * something anybody has to reconstruct later. */
+      source_note: String(params.source_note || '').slice(0, 400),
       status,
     };
     const now = new Date().toISOString();
@@ -716,6 +723,66 @@ const routes = {
        VALUES (?1, ?2, ${keys.map((_, i) => `?${i + 3}`).join(', ')}, ?${keys.length + 3}, ?${keys.length + 4}, ?${keys.length + 5}, ?${keys.length + 6})`
     ).bind(id, slug, ...keys.map((k) => cols[k]), status === 'published' ? now : null, now, user.email, now).run();
     return { ok: true, id, slug };
+  },
+
+  /* Copies images found by the URL importer into our own bucket.
+   *
+   * Not hot-linked. A remote URL can rot, change, or be pulled, and a listing
+   * whose photos vanish is worse than one with none. Copying also means we are
+   * not quietly using somebody else's bandwidth on every page view. */
+  async listingFetchImages(env, { id, urls }, user) {
+    if (!/^[0-9a-f-]{36}$/.test(id || '')) throw new Error('Bad id');
+    if (!env.DOCS) throw new Error('Storage is not configured');
+    const list = (Array.isArray(urls) ? urls : []).slice(0, 30);
+    if (!list.length) throw new Error('No images to fetch');
+
+    const OK_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+    let saved = 0;
+    const problems = [];
+
+    for (const raw of list) {
+      let u;
+      try { u = new URL(String(raw)); } catch { problems.push('bad link'); continue; }
+      if (u.protocol !== 'https:' && u.protocol !== 'http:') { problems.push('bad protocol'); continue; }
+
+      try {
+        const res = await fetch(u.toString(), {
+          headers: { 'user-agent': 'FastKeysBot/1.0 (+https://fastkeyshousing.com)' },
+        });
+        if (!res.ok) { problems.push(`${u.pathname.slice(-24)} (${res.status})`); continue; }
+
+        const type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+        if (!OK_TYPES.includes(type)) { problems.push(`${u.pathname.slice(-24)} (not an image)`); continue; }
+
+        const buf = await res.arrayBuffer();
+        if (!buf.byteLength || buf.byteLength > 8 * 1024 * 1024) {
+          problems.push(`${u.pathname.slice(-24)} (${buf.byteLength ? 'too large' : 'empty'})`);
+          continue;
+        }
+
+        const file = `${crypto.randomUUID()}.${EXT[type]}`;
+        await env.DOCS.put(`listings/${id}/${file}`, buf, {
+          httpMetadata: { contentType: type },
+          customMetadata: { listing: id, importedBy: user.email, from: u.toString().slice(0, 400) },
+        });
+        /* Appended atomically, the same way uploads are, so a batch cannot lose
+         * images to a read-modify-write race. */
+        await env.DB.prepare(
+          `UPDATE listings
+              SET images = CASE
+                    WHEN json_array_length(COALESCE(images, '[]')) < 30
+                    THEN json_insert(COALESCE(images, '[]'), '$[#]', ?1)
+                    ELSE images END,
+                  updated_at = ?2
+            WHERE id = ?3`
+        ).bind(`/photo/${id}/${file}`, new Date().toISOString(), id).run();
+        saved++;
+      } catch (err) {
+        problems.push(`${u.hostname} (${String(err.message || err).slice(0, 40)})`);
+      }
+    }
+    return { ok: true, saved, attempted: list.length, problems };
   },
 
   async listingDelete(env, { id }, user) {
