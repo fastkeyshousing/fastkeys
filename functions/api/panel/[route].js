@@ -19,6 +19,7 @@ import { propertyEmail, safeUrl } from '../../../lib/property-email.js';
 import { sendAndLog } from '../../../lib/send-log.js';
 import { customEmail } from '../../../lib/custom-email.js';
 import { landlordEmail } from '../../../lib/landlord-email.js';
+import { documentsEmail } from '../../../lib/documents-email.js';
 
 const REF_RE = /^FK-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
 const VREF_RE = /^FV-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
@@ -33,7 +34,7 @@ const OWNER_ONLY = new Set(['update', 'remove', 'create', 'updateEmail', 'reconc
   'archive', 'unarchive', 'deletions',
   /* A cold email naming a client's income, sent outside the business, with
    * something offered in return. Owner's decision. */
-  'sendLandlord',
+  'sendLandlord', 'sendBulk',
   /* Publishing to the public site is an owner decision: a listing that names a
    * landlord is the one artefact on this site with legal consequences. */
   'listingSave', 'listingDelete']);
@@ -694,12 +695,18 @@ const routes = {
       expires_at: String(params.expires_at || '').slice(0, 40),
       source: ['facebook', 'renthunter', 'manual', 'other'].includes(params.source) ? params.source : 'manual',
       source_url: String(params.source_url || '').slice(0, 500),
-      /* Who agreed to this being here, and when. Written at import so it is not
-       * something anybody has to reconstruct later. */
-      source_note: String(params.source_note || '').slice(0, 400),
       status,
     };
     const now = new Date().toISOString();
+
+    /* Code and migrations deploy separately, so a push can land before
+     * db:migrate runs. Rather than failing with a raw SQLite error, columns the
+     * table does not have yet are dropped and the save goes through. */
+    const probe = await env.DB.prepare(`SELECT name FROM pragma_table_info('listings')`).all();
+    const known = new Set((probe.results ?? []).map((r) => r.name));
+    for (const key of Object.keys(cols)) {
+      if (!known.has(key)) delete cols[key];
+    }
 
     if (params.id) {
       if (!/^[0-9a-f-]{36}$/.test(params.id)) throw new Error('Bad id');
@@ -1033,6 +1040,99 @@ const routes = {
    * the record must already be archived, and the reference must be typed out.
    * A snapshot goes to deletion_log first, so afterwards there is still an answer
    * to "was this deleted, or did it never exist". */
+  /* Asks one client for their paperwork. */
+  async sendDocuments(env, { reference, note }, user) {
+    if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
+    const row = await env.DB.prepare(
+      `SELECT reference, name, email, payload, status FROM applications WHERE reference = ?1`
+    ).bind(reference).first();
+    if (!row) throw new Error('No application with that reference');
+    if (row.status !== 'paid') throw new Error(`This one is "${row.status}", not paid`);
+
+    let application = {};
+    try { application = JSON.parse(row.payload); } catch { application = { name: row.name }; }
+    const to = application.email || row.email;
+
+    const { subject, html, text } = documentsEmail({
+      application, reference: row.reference,
+      siteUrl: (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, ''),
+      supportEmail: env.NOTIFY_EMAIL || 'hello@fastkeyshousing.com',
+      extraNote: String(note || '').slice(0, 600),
+    });
+
+    await sendAndLog(env, {
+      reference: row.reference, kind: 'documents', to, subject, html, text,
+      sentBy: user.email, meta: { note: note || null },
+    });
+    return { ok: true, sentTo: to };
+  },
+
+  /* The same email to many clients at once.
+   *
+   * Sent one at a time rather than as one message with many recipients: a
+   * shared To line would show every client each other's address, and each email
+   * carries that person's own reference anyway.
+   *
+   * Capped, and it reports per-recipient rather than a single success, because
+   * a bulk send that half-worked is the case you most need to see. */
+  async sendBulk(env, { kind, references, note, dryRun }, user) {
+    const KINDS = ['documents', 'receipt', 'reminder'];
+    if (!KINDS.includes(kind)) throw new Error(`Cannot bulk send "${kind}"`);
+
+    const refs = (Array.isArray(references) ? references : [])
+      .filter((r) => REF_RE.test(String(r || ''))).slice(0, 200);
+    if (!refs.length) throw new Error('Nobody selected');
+
+    const list = [];
+    for (const reference of refs) {
+      const row = await env.DB.prepare(
+        `SELECT reference, name, email, status, archived_at, applicant_emailed_at, reminder_count
+           FROM applications WHERE reference = ?1`
+      ).bind(reference).first();
+      if (!row) { list.push({ reference, skipped: 'not found' }); continue; }
+      /* Archived means taken off the list deliberately. A bulk send should not
+       * quietly reach back into it. */
+      if (row.archived_at) { list.push({ reference, skipped: 'archived' }); continue; }
+      if ((kind === 'documents' || kind === 'receipt') && row.status !== 'paid') {
+        list.push({ reference, skipped: `not paid (${row.status})` }); continue;
+      }
+      if (kind === 'reminder' && row.status === 'paid') {
+        list.push({ reference, skipped: 'already paid' }); continue;
+      }
+      if (kind === 'reminder' && (row.reminder_count ?? 0) >= 2) {
+        list.push({ reference, skipped: 'already reminded twice' }); continue;
+      }
+      list.push({ reference, name: row.name, email: row.email, ok: true });
+    }
+
+    const willSend = list.filter((x) => x.ok);
+    /* A dry run first, always offered by the interface, because "send to
+     * everyone" is the one action with no undo. */
+    if (dryRun) {
+      return { dryRun: true, willSend: willSend.length, total: list.length, list };
+    }
+
+    /* Named off the outer routes object rather than `this`: the dispatcher pulls
+     * each handler out by name and calls it bare, so `this` is undefined here. */
+    const handler = { documents: routes.sendDocuments, receipt: routes.sendConfirmation,
+                      reminder: routes.remind }[kind];
+    const sent = [];
+    const failed = [];
+    for (const item of willSend) {
+      try {
+        await handler(env, { reference: item.reference, note }, user);
+        sent.push(item.reference);
+      } catch (err) {
+        failed.push({ reference: item.reference, error: String(err.message || err).slice(0, 140) });
+      }
+    }
+
+    console.log(`[bulk] ${user.email} sent ${kind} to ${sent.length}, ${failed.length} failed`);
+    return {
+      ok: true, kind, sent: sent.length, failed, skipped: list.filter((x) => x.skipped),
+    };
+  },
+
   async remove(env, { reference, confirm, reason }, user) {
     if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
     if (confirm !== reference) throw new Error('Type the reference exactly to confirm');

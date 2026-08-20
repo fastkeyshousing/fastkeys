@@ -751,6 +751,11 @@ textarea.pn-in{min-height:60px; resize:vertical}
 .pn-photo figcaption{font-size:11.4px; color:rgba(237,239,242,.42); margin-top:5px;
   word-break:break-all; line-height:1.4}
 .pn-photo .del{background:none; border:none; color:#F0A9A9; font-size:11.4px; cursor:pointer; padding:0}
+#pnLapsed{position:fixed; left:0; right:0; bottom:0; z-index:80; display:flex; gap:16px;
+  align-items:center; flex-wrap:wrap; padding:14px 20px; background:#3A4553;
+  border-top:2px solid var(--key); box-shadow:0 -8px 24px rgba(0,0,0,.35);
+  font-size:14px; color:var(--chalk)}
+#pnLapsed b{color:var(--key)}
 .pn-hint2{font-size:12.6px; color:rgba(237,239,242,.42); line-height:1.55; margin-top:7px}
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -832,6 +837,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <button class="pn-b" id="pnNewProp" style="display:none">+ Property</button>
         <button class="pn-b" id="pnNewListing" style="display:none">+ Listing</button>
         <button class="pn-b gh" id="pnImport" style="display:none">Import</button>
+        <button class="pn-b" id="pnBulk" style="display:none">Send to all</button>
         <button class="pn-b gh" id="pnPaste" style="display:none">Paste a post</button>
       </div>
 
@@ -939,15 +945,59 @@ textarea.pn-in{min-height:60px; resize:vertical}
     }
     return fetch(url, opts).then(function(r){
       return r.json().catch(function(){ return {}; }).then(function(b){
-        if(r.status === 401){ showLogin(); throw new Error('Signed out'); }
+        if(r.status === 401){ sessionLapsed(); throw new Error('Signed out'); }
         if(!r.ok) throw new Error(b.error || 'Request failed');
         return b;
       });
     });
   }
 
+  /* A lapsed session used to hide the whole panel, so a half-written email, an
+     import draft or a form vanished the moment any background request came back
+     401. Now nothing is torn down: a bar appears, the work stays on screen, and
+     signing in again carries on where it left off. */
+  var lapsed = false;
+  function sessionLapsed(){
+    if(lapsed) return;
+    lapsed = true;
+    var bar = document.createElement('div');
+    bar.id = 'pnLapsed';
+    bar.innerHTML =
+      '<div><b>Your session expired.</b> Nothing you have typed is lost. Sign in again to carry on.</div>' +
+      '<form id="pnReauth" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+      '<input id="pnReEmail" class="pn-in" type="email" placeholder="Email" autocomplete="username" style="width:auto">' +
+      '<input id="pnRePass" class="pn-in" type="password" placeholder="Password" autocomplete="current-password" style="width:auto">' +
+      '<button class="pn-b" type="submit">Sign in</button></form>' +
+      '<span id="pnReMsg" style="font-size:13px"></span>';
+    document.body.appendChild(bar);
+    if(me && me.email) document.querySelector('#pnReEmail').value = me.email;
+    var pw = document.querySelector('#pnRePass');
+    if(pw) pw.focus();
+    document.querySelector('#pnReauth').addEventListener('submit', function(e){
+      e.preventDefault();
+      var msg = document.querySelector('#pnReMsg');
+      msg.textContent = 'Signing in\u2026'; msg.style.color = 'rgba(237,239,242,.6)';
+      fetch('/api/admin/login', {
+        method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+        body: JSON.stringify({email: document.querySelector('#pnReEmail').value.trim(),
+                              password: document.querySelector('#pnRePass').value})
+      }).then(function(r){ return r.json().catch(function(){ return {}; })
+          .then(function(b){ return {ok:r.ok, b:b}; }); })
+        .then(function(res){
+          if(res.ok && res.b.user){
+            lapsed = false; me = res.b.user; bar.remove(); load(); return;
+          }
+          msg.textContent = 'That did not work.'; msg.style.color = '#F0A9A9';
+        })
+        .catch(function(){ msg.textContent = 'Could not reach the server.'; msg.style.color = '#F0A9A9'; });
+    });
+  }
+
   function showLogin(){
     me = null;
+    lapsed = false;
+    var oldBar = document.querySelector('#pnLapsed');
+    if(oldBar) oldBar.remove();
     document.body.classList.remove('pn-active');
     $('#panelView').hidden = true;
     $('#loginView').hidden = false;
@@ -1960,13 +2010,6 @@ textarea.pn-in{min-height:60px; resize:vertical}
       'works on pages that are public; anything behind a login will come back empty.</p>' +
       '<input id="imp_url" class="pn-in" placeholder="https://..."></div>' +
 
-      '<div class="pn-grid" style="margin-top:12px">' +
-      '<div class="wide"><label for="imp_note">Permission note</label>' +
-      '<input id="imp_note" class="pn-in" placeholder="e.g. Jan at RentHunter agreed by email, 19 Aug 2026">' +
-      '<p class="pn-hint2">Stored with the listing. This is the only record of why their content ' +
-      'is on your site, and it is the first thing you would want if anyone ever asks.</p></div>' +
-      '</div>' +
-
       '<div class="pn-acts"><button class="pn-b" id="impGo">Read it</button>' +
       '<button class="pn-b gh" id="impCancel">Cancel</button></div>' +
       '<div class="pn-msg2" id="impMsg"></div><div id="impResult"></div>';
@@ -1994,7 +2037,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
       api('import', body, 'POST')
         .then(function(res){
           btn.disabled = false; btn.textContent = 'Read it';
-          showDraft(res, $('#imp_note').value.trim());
+          showDraft(res);
         })
         .catch(function(e){
           btn.disabled = false; btn.textContent = 'Read it';
@@ -2005,7 +2048,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
 
   /* What the parser made of it, as an editable form. Anything it could not
      work out is simply blank rather than filled with a guess. */
-  function showDraft(res, permissionNote){
+  function showDraft(res){
     var d = res.draft || {};
     var found = ['title','address','city','rent','deposit','available_from','size','rooms',
                  'furnished','registration','contact_email','contact_phone']
@@ -2038,7 +2081,6 @@ textarea.pn-in{min-height:60px; resize:vertical}
       var payload = collectListing(null);
       payload.source = res.source || 'other';
       payload.source_url = d.source_url || '';
-      payload.source_note = permissionNote || '';
       api('listingSave', payload, 'POST')
         .then(function(saved){
           var imgs = (res.images || []).slice(0, 30);
@@ -2200,10 +2242,76 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
   }
 
+  /* Sending the same email to everybody at once.
+     Always previewed first: this is the one action in the panel with no undo,
+     and the preview is what turns "send to all" from a leap into a decision. */
+  function bulkDialog(){
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">Send to all clients</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">One email each, sent separately, so nobody sees ' +
+      'anyone else\u2019s address. Archived clients are always skipped.</p>' +
+      '<div class="pn-grid">' +
+      '<div class="wide"><label for="bk_kind">Which email</label>' +
+      '<select id="bk_kind" class="pn-in">' +
+      '<option value="documents">Ask for documents &mdash; paid clients</option>' +
+      '<option value="receipt">Receipt / confirmation &mdash; paid clients</option>' +
+      '<option value="reminder">Payment reminder &mdash; unpaid only, max two each</option>' +
+      '</select></div>' +
+      '<div class="wide"><label for="bk_note">Extra line (optional, documents only)</label>' +
+      '<input id="bk_note" class="pn-in" placeholder="e.g. We are viewing three places next week."></div>' +
+      '</div>' +
+      '<div class="pn-acts"><button class="pn-b" id="bkCheck">See who would get it</button>' +
+      '<button class="pn-b gh" id="bkCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="bkMsg"></div><div id="bkResult"></div>';
+    $('#pnModal').classList.add('open');
+    $('#bkCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+
+    var gather = function(){
+      /* Whoever the current filter and search show. "All" means what is on
+         screen, not the whole database, so a search narrows the send. */
+      return {kind: $('#bk_kind').value, note: $('#bk_note').value.trim(),
+              references: (window.__mailRows || []).map(function(r){ return r.reference; })};
+    };
+
+    $('#bkCheck').onclick = function(){
+      var body = gather(); body.dryRun = true;
+      api('sendBulk', body, 'POST').then(function(r){
+        var skipped = (r.list || []).filter(function(x){ return x.skipped; });
+        $('#bkResult').innerHTML =
+          '<div class="pn-sec"><h3>' + r.willSend + ' of ' + r.total + ' would receive it</h3>' +
+          (skipped.length
+            ? '<p class="pn-hint2" style="margin-top:0">Skipped: ' +
+              skipped.slice(0,12).map(function(x){ return esc(x.reference) + ' (' + esc(x.skipped) + ')'; }).join(', ') +
+              (skipped.length > 12 ? ' and ' + (skipped.length - 12) + ' more' : '') + '</p>'
+            : '') +
+          (r.willSend
+            ? '<div class="pn-acts"><button class="pn-b" id="bkGo">Send to ' + r.willSend + ' now</button></div>'
+            : '<p class="pn-hint2">Nobody on this list qualifies.</p>') +
+          '<div class="pn-msg2" id="bkGoMsg"></div></div>';
+        if($('#bkGo')) $('#bkGo').onclick = function(){
+          if(!confirm('Send this to ' + r.willSend + ' clients?\n\nThere is no undo.')) return;
+          var btn = $('#bkGo'); btn.disabled = true; btn.textContent = 'Sending\u2026';
+          api('sendBulk', gather(), 'POST').then(function(res){
+            $('#pnModal').classList.remove('open');
+            loadMail();
+            alert('Sent to ' + res.sent + '.' +
+              (res.failed && res.failed.length
+                ? '\n\nFailed: ' + res.failed.map(function(f){ return f.reference + ' (' + f.error + ')'; }).join('; ')
+                : ''));
+          }).catch(function(e){
+            btn.disabled = false; btn.textContent = 'Send now';
+            note('#bkGoMsg', e.message, false);
+          });
+        };
+      }).catch(function(e){ note('#bkMsg', e.message, false); });
+    };
+  }
+
   function loadMail(){
     $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
     api('emails', {q: $('#pnQ').value.trim()})
       .then(function(d){
+        window.__mailRows = d.rows;
         var pending = d.rows.filter(function(r){ return r.status === 'paid' && !r.applicant_emailed_at; }).length;
         $('#pnStats').innerHTML = '<span><b>' + d.rows.length + '</b> clients</span>' +
           (pending ? '<span class="warn"><b>' + pending + '</b> awaiting a receipt</span>' : '');
@@ -2254,6 +2362,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
         (r.applicant_emailed_at ? 'Resend receipt' : 'Send receipt') + '</button>' +
       '<button class="pn-b gh" id="mSendReminder"' + (r.status === 'paid' ? ' disabled' : '') + '>' +
         'Payment reminder</button>' +
+      '<button class="pn-b gh" id="mSendDocs">Ask for documents</button>' +
       '<button class="pn-b gh" id="mSendProperty">Send a property</button>' +
       '<button class="pn-b gh" id="mSendCustom">Custom email</button>' +
       (isOwner() ? '<button class="pn-b gh" id="mSendLandlord">Approach a landlord</button>' : '') +
@@ -2275,6 +2384,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
     $('#mSendReminder').onclick = function(){
       send('remind', {reference: ref}, this, refresh, true);
     };
+    $('#mSendDocs').onclick = function(){ send('sendDocuments', {reference: ref}, this, refresh); };
     $('#mSendProperty').onclick = function(){ propertyComposer(ref, r, refresh); };
     $('#mSendCustom').onclick = function(){ customComposer(ref, r, refresh); };
     if($('#mSendLandlord')) $('#mSendLandlord').onclick = function(){ landlordComposer(ref, r, refresh); };
@@ -2559,6 +2669,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
   $('#pnNewProp').addEventListener('click', newProperty);
   $('#pnNewListing').addEventListener('click', function(){ listingForm(null); });
   $('#pnImport').addEventListener('click', importDialog);
+  $('#pnBulk').addEventListener('click', bulkDialog);
 
   /* Paste a post you already read, and the fields fill themselves in. The
      parsing happens server-side so there is one implementation, and every value
@@ -2633,6 +2744,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
       if($('#pnNewProp')) $('#pnNewProp').style.display = tracker ? '' : 'none';
       if($('#pnNewListing')) $('#pnNewListing').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
       if($('#pnImport')) $('#pnImport').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
+      if($('#pnBulk')) $('#pnBulk').style.display = (view === 'mail' && isOwner()) ? '' : 'none';
       if($('#pnPaste')) $('#pnPaste').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
       selected = null;
       $('#pnPane').innerHTML = '<div class="pn-empty"><div>' +
