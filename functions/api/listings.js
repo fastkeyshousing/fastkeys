@@ -44,7 +44,7 @@ export async function onRequestGet({ request, env }) {
   if (slug) {
     if (!SLUG_RE.test(slug)) return fail(422, 'bad_slug');
     const row = await env.DB.prepare(
-      `SELECT * FROM listings WHERE slug = ?1 AND status = 'published'`
+      `SELECT * FROM listings WHERE slug = ?1 AND status = 'published' AND archived_at IS NULL`
     ).bind(slug).first();
     if (!row) return fail(404, 'not_found');
     return json({ listing: publicView(row) });
@@ -53,7 +53,7 @@ export async function onRequestGet({ request, env }) {
   const city = (url.searchParams.get('city') || '').slice(0, 60);
   const rows = await env.DB.prepare(
     `SELECT * FROM listings
-      WHERE status = 'published'
+      WHERE status = 'published' AND archived_at IS NULL
         ${city ? 'AND lower(city) = lower(?1)' : ''}
       ORDER BY published_at DESC LIMIT 120`
   ).bind(...(city ? [city] : [])).all();

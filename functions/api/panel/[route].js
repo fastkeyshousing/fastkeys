@@ -30,14 +30,15 @@ const STATUSES = ['pending', 'paid', 'expired', 'failed'];
  * creates one, or removes one stays with the owner: a viewing schedule is
  * day-to-day work, an applicant's income figure is not. */
 const OWNER_ONLY = new Set(['update', 'remove', 'create', 'updateEmail', 'reconcile',
-  'listingFetchImages',
   'archive', 'unarchive', 'deletions',
   /* A cold email naming a client's income, sent outside the business, with
    * something offered in return. Owner's decision. */
   'sendLandlord', 'sendBulk',
-  /* Publishing to the public site is an owner decision: a listing that names a
-   * landlord is the one artefact on this site with legal consequences. */
-  'listingSave', 'listingDelete']);
+  /* The noticeboard itself is day-to-day work and open to staff: adding,
+   * editing, publishing, importing and archiving posts. Only the permanent
+   * destruction of archived posts stays with the owner, matching how client
+   * records work. */
+  'listingPurge']);
 const EMAIL_KINDS = ['confirmation', 'receipt', 'reminder', 'property', 'custom'];
 
 const esc = (s) => String(s).replace(/'/g, "''");
@@ -694,8 +695,12 @@ const routes = {
 
 
   /* ------------------------------------------------------------- listings */
-  async listings(env, { status, q }) {
+  async listings(env, { status, q, archived }) {
     const where = [];
+    /* The live board never shows archived posts; the board archive shows only
+     * them. Same pattern as clients. */
+    if (archived === 'only') where.push(`archived_at IS NOT NULL`);
+    else where.push(`archived_at IS NULL`);
     if (status && status !== 'all') where.push(`status = '${esc(status)}'`);
     if (q) {
       const term = esc(String(q).toLowerCase().slice(0, 80));
@@ -706,7 +711,9 @@ const routes = {
         ORDER BY COALESCE(published_at, created_at) DESC LIMIT 200`
     ).all();
     const counts = await env.DB.prepare(
-      `SELECT status, COUNT(*) AS n FROM listings GROUP BY status`
+      `SELECT status, COUNT(*) AS n FROM listings
+        WHERE archived_at IS ${archived === 'only' ? 'NOT NULL' : 'NULL'}
+        GROUP BY status`
     ).all();
     return { rows: rows.results ?? [], counts: counts.results ?? [] };
   },
@@ -878,11 +885,88 @@ const routes = {
     return { ok: true, saved, attempted: list.length, problems };
   },
 
-  async listingDelete(env, { id }, user) {
+  /* Removing a post archives it, mirroring how client records work: the row
+   * stays, drops off the live board and the public site, and can be restored.
+   * Real destruction is listingPurge, a separate owner-only step below. */
+  async listingArchive(env, { id }, user) {
     if (!/^[0-9a-f-]{36}$/.test(id || '')) throw new Error('Bad id');
-    await env.DB.prepare(`DELETE FROM listings WHERE id = ?1`).bind(id).run();
-    console.log(`[listings] ${user.email} deleted listing ${id}`);
-    return { ok: true };
+    const res = await env.DB.prepare(
+      `UPDATE listings SET archived_at = ?1, archived_by = ?2
+        WHERE id = ?3 AND archived_at IS NULL`
+    ).bind(new Date().toISOString(), user.email, id).run();
+    if ((res.meta?.changes ?? 0) === 0) throw new Error('Not found, or already archived');
+    console.log(`[listings] ${user.email} archived listing ${id}`);
+    return { ok: true, archived: id };
+  },
+
+  async listingUnarchive(env, { id }, user) {
+    if (!/^[0-9a-f-]{36}$/.test(id || '')) throw new Error('Bad id');
+    /* Restored as a draft even if it was published before: a post that was
+     * pulled off the board should not reappear on the public site until a
+     * person has looked at it again and said so. */
+    const res = await env.DB.prepare(
+      `UPDATE listings SET archived_at = NULL, archived_by = NULL, status = 'draft'
+        WHERE id = ?1 AND archived_at IS NOT NULL`
+    ).bind(id).run();
+    if ((res.meta?.changes ?? 0) === 0) throw new Error('Not found, or not archived');
+    console.log(`[listings] ${user.email} restored listing ${id}`);
+    return { ok: true, restored: id };
+  },
+
+  /* Permanently deletes archived posts: the ones named in ids, or with
+   * all:true every archived post. Owner only, only ever touches rows that are
+   * already archived, and each row is snapshotted to deletion_log first so
+   * "was this deleted, or did it never exist" keeps an answer. Uploaded photos
+   * go from R2 too; a photo of somebody's house should not outlive the post. */
+  async listingPurge(env, { ids, all }, user) {
+    let targets;
+    if (all === true) {
+      const rows = await env.DB.prepare(
+        `SELECT id FROM listings WHERE archived_at IS NOT NULL LIMIT 200`
+      ).all();
+      targets = (rows.results ?? []).map((r) => r.id);
+    } else {
+      targets = (Array.isArray(ids) ? ids : [])
+        .filter((i) => /^[0-9a-f-]{36}$/.test(String(i || ''))).slice(0, 200);
+    }
+    if (!targets.length) throw new Error('Nothing selected to delete');
+
+    const deleted = [];
+    const skipped = [];
+    for (const id of targets) {
+      const row = await env.DB.prepare(`SELECT * FROM listings WHERE id = ?1`).bind(id).first();
+      if (!row) { skipped.push({ id, why: 'not found' }); continue; }
+      if (!row.archived_at) { skipped.push({ id, why: 'not archived' }); continue; }
+
+      try {
+        await env.DB.prepare(
+          `INSERT INTO deletion_log (id, entity, reference, name, email, snapshot, deleted_by, deleted_at, reason)
+           VALUES (?1,'listing',?2,?3,?4,?5,?6,?7,'purged from board archive')`
+        ).bind(crypto.randomUUID(), row.id, row.title, row.contact_email || null,
+               JSON.stringify(row), user.email, new Date().toISOString()).run();
+      } catch (err) {
+        /* If the record of the deletion cannot be written, do not delete. */
+        skipped.push({ id, why: `could not log: ${String(err.message || err).slice(0, 100)}` });
+        continue;
+      }
+
+      await env.DB.prepare(`DELETE FROM listings WHERE id = ?1`).bind(id).run();
+
+      /* Best effort: a failed photo cleanup should not undo the deletion the
+       * log already records. */
+      if (env.DOCS) {
+        try {
+          const objects = await env.DOCS.list({ prefix: `listings/${id}/` });
+          for (const o of objects.objects ?? []) await env.DOCS.delete(o.key);
+        } catch (err) {
+          console.error(`[listings] purge of ${id}: photos not fully removed:`, err);
+        }
+      }
+      deleted.push(id);
+    }
+
+    console.warn(`[listings] ${user.email} purged ${deleted.length} archived post(s), ${skipped.length} skipped`);
+    return { ok: true, deleted: deleted.length, skipped };
   },
 
   /* Sends a published listing to one client, reusing the branded property
@@ -894,6 +978,7 @@ const routes = {
 
     const listing = await env.DB.prepare(`SELECT * FROM listings WHERE id = ?1`).bind(id).first();
     if (!listing) throw new Error('No such listing');
+    if (listing.archived_at) throw new Error('This post is archived. Restore it before sharing it.');
     if (listing.status !== 'published') throw new Error('Publish it before sharing it');
 
     const client = await env.DB.prepare(
@@ -1164,9 +1249,15 @@ const routes = {
    *
    * Capped, and it reports per-recipient rather than a single success, because
    * a bulk send that half-worked is the case you most need to see. */
-  async sendBulk(env, { kind, references, note, dryRun }, user) {
-    const KINDS = ['documents', 'receipt', 'reminder'];
+  async sendBulk(env, { kind, references, note, heading, body, ctaLabel, ctaUrl, dryRun }, user) {
+    const KINDS = ['documents', 'receipt', 'reminder', 'custom'];
     if (!KINDS.includes(kind)) throw new Error(`Cannot bulk send "${kind}"`);
+
+    /* A custom bulk email is written once and validated once, before the loop:
+     * finding out the body is empty after three sends went out is too late. */
+    if (kind === 'custom') {
+      if (String(body || '').trim().length < 5) throw new Error('Write something in the body');
+    }
 
     const refs = (Array.isArray(references) ? references : [])
       .filter((r) => REF_RE.test(String(r || ''))).slice(0, 200);
@@ -1204,6 +1295,8 @@ const routes = {
       if (kind === 'reminder' && (row.reminder_count ?? 0) >= 2) {
         list.push({ reference, skipped: 'already reminded twice' }); continue;
       }
+      /* A custom email carries whatever was written, so paid and unpaid alike
+       * qualify: only the archived and placed checks above apply. */
       list.push({ reference, name: row.name, email: row.email, ok: true });
     }
 
@@ -1222,7 +1315,17 @@ const routes = {
     const failed = [];
     for (const item of willSend) {
       try {
-        await handler(env, { reference: item.reference, note }, user);
+        if (kind === 'custom') {
+          /* Reuses the single-send route so the branding, the attachment rules
+           * and the archived guard stay one implementation. The recipient is
+           * the client's own address, never typed. */
+          await routes.sendCustom(env, {
+            reference: item.reference, to: item.email,
+            heading, body, ctaLabel, ctaUrl,
+          }, user);
+        } else {
+          await handler(env, { reference: item.reference, note }, user);
+        }
         sent.push(item.reference);
       } catch (err) {
         failed.push({ reference: item.reference, error: String(err.message || err).slice(0, 140) });

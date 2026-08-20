@@ -7,8 +7,8 @@
  * parser is a guess and a listing on a public site is a claim about somebody
  * else's property.
  *
- * Owner only: publishing to the public site is already an owner decision, and
- * the url mode makes this deployment fetch an arbitrary address.
+ * Open to any signed-in staff member: the board is day-to-day work, nothing
+ * here publishes by itself, and the url fetcher below refuses private hosts.
  */
 
 import { json, fail, sameOrigin, methodNotAllowed } from '../../../lib/http.js';
@@ -60,7 +60,6 @@ export async function onRequestPost({ request, env }) {
 
   const user = await currentUser(request, env);
   if (!user) return fail(401, 'not_signed_in');
-  if (user.role !== 'owner') return fail(403, 'not_permitted');
 
   let body;
   try {

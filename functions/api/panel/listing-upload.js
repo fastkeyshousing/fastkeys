@@ -1,7 +1,7 @@
 /* POST /api/panel/listing-upload?id=<listing id>&filename=x.jpg
  *
- * Raw image body. Owner only, because publishing to the public site is an owner
- * decision and a photo is the most visible part of a listing.
+ * Raw image body. Open to any signed-in staff member, like the rest of the
+ * board: uploading a photo publishes nothing by itself.
  *
  * Returns the URL the board should use. The object goes to R2 under
  * listings/<id>/, deliberately a different prefix from documents/, so the public
@@ -25,7 +25,6 @@ export async function onRequestPost({ request, env }) {
 
   const user = await currentUser(request, env);
   if (!user) return fail(401, 'not_signed_in');
-  if (user.role !== 'owner') return fail(403, 'not_permitted');
 
   const url = new URL(request.url);
   const id = url.searchParams.get('id') || '';

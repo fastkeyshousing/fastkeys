@@ -821,6 +821,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <div class="pn-tabs">
           <button class="pn-tab on" data-view="clients">Clients</button>
           <button class="pn-tab" data-view="mail">Mail</button>
+          <button class="pn-tab" data-view="compose">Compose</button>
           <button class="pn-tab" data-view="listings">Noticeboard</button>
           <button class="pn-tab" data-view="archived">Archived</button>
         </div>
@@ -831,6 +832,10 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <select id="pnMailKind" class="pn-in" style="width:auto;display:none">
           <option value="clients">Clients</option>
           <option value="sent">Sent emails</option>
+        </select>
+        <select id="pnBoardKind" class="pn-in" style="width:auto;display:none">
+          <option value="live">Live board</option>
+          <option value="archived">Board archive</option>
         </select>
         <input type="search" id="pnQ" class="pn-in" style="flex:1;min-width:180px"
                placeholder="Search reference, name or email" autocomplete="off">
@@ -847,6 +852,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <button class="pn-b" id="pnNewListing" style="display:none">+ Listing</button>
         <button class="pn-b gh" id="pnImport" style="display:none">Import</button>
         <button class="pn-b" id="pnBulk" style="display:none">Bulk email</button>
+        <button class="pn-b" id="pnComposeNew" style="display:none">New email</button>
         <button class="pn-b gh" id="pnPaste" style="display:none">Paste a post</button>
       </div>
 
@@ -1072,6 +1078,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
   /* ------------------------------------------------------------------ list */
   function load(){
     if(view === 'mail') return loadMail();
+    if(view === 'compose') return loadCompose();
     if(view === 'listings') return loadListings();
     /* The Archived tab is the client list with one filter fixed: only the
        applications that were deliberately taken off the books. Everywhere else
@@ -1636,31 +1643,65 @@ textarea.pn-in{min-height:60px; resize:vertical}
   }
 
   /* ------------------------------------------------------------ noticeboard
-     Public listings. Only the owner may create or publish, because a listing
-     that names a landlord is the one thing on this site with legal weight: it
-     must stay a noticeboard where the lister is contacted directly, never our
-     own stock, or the tenant-paid fee becomes unlawful. */
+     Public listings. Open to all staff for day-to-day work: adding, editing,
+     publishing, importing and archiving. It must stay a noticeboard where the
+     lister is contacted directly, never our own stock, or the tenant-paid fee
+     becomes unlawful. Removing a post archives it; only the owner can purge
+     the archive for good. */
   var listingRows = [];
   var L_STATUS = ['draft','published','taken','expired'];
+  /* Which archived posts are ticked for a purge. */
+  var boardSel = new Set();
+  function boardCount(){
+    var el = $('#bdSelCount');
+    if(el) el.textContent = boardSel.size ? boardSel.size + ' selected' : '';
+    if($('#bdPurgeSel')) $('#bdPurgeSel').disabled = !boardSel.size;
+  }
+  function boardArchiveMode(){ return $('#pnBoardKind').value === 'archived'; }
 
   function loadListings(){
+    var archiveMode = boardArchiveMode();
     $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
-    api('listings', {q: $('#pnQ').value.trim()})
+    api('listings', {q: $('#pnQ').value.trim(), archived: archiveMode ? 'only' : ''})
       .then(function(d){
         listingRows = d.rows;
-        var pub = (d.counts.filter(function(c){ return c.status === 'published'; })[0] || {n:0}).n;
-        $('#pnStats').innerHTML = '<span><b>' + d.rows.length + '</b> total</span>' +
-          '<span><b>' + pub + '</b> live</span>';
+        var visible = new Set(d.rows.map(function(l){ return l.id; }));
+        boardSel.forEach(function(id){ if(!visible.has(id)) boardSel.delete(id); });
+
+        if(archiveMode){
+          $('#pnStats').innerHTML = '<span><b>' + d.rows.length + '</b> archived</span>';
+        } else {
+          var pub = (d.counts.filter(function(c){ return c.status === 'published'; })[0] || {n:0}).n;
+          $('#pnStats').innerHTML = '<span><b>' + d.rows.length + '</b> total</span>' +
+            '<span><b>' + pub + '</b> live</span>';
+        }
         if(!d.rows.length){
-          $('#pnList').innerHTML = '<div class="pn-empty"><div>Nothing on the board yet.<br>' +
-            (isOwner() ? 'Press <b>+ Listing</b> to add one.' : 'Only the owner can add listings.') +
+          $('#pnList').innerHTML = '<div class="pn-empty"><div>' +
+            (archiveMode ? 'The board archive is empty.'
+             : 'Nothing on the board yet.<br>Press <b>+ Listing</b> to add one.') +
             '</div></div>';
           return;
         }
-        $('#pnList').innerHTML = d.rows.map(function(l){
-          return '<div class="pn-r' + (l.status !== 'published' ? ' closed' : '') +
+        $('#pnList').innerHTML =
+          (archiveMode
+            ? '<div class="pn-selbar"><label><input type="checkbox" id="bdSelAll"> Select all</label>' +
+              '<span id="bdSelCount"></span>' +
+              (isOwner()
+                ? '<span style="flex:1"></span>' +
+                  '<button class="pn-b rd" id="bdPurgeSel" style="padding:6px 12px;font-size:12.6px" disabled>Delete selected permanently</button>' +
+                  '<button class="pn-b rd" id="bdPurgeAll" style="padding:6px 12px;font-size:12.6px">Delete all</button>'
+                : '') +
+              '</div>'
+            : '') +
+          d.rows.map(function(l){
+          return '<div class="pn-r' + (archiveMode ? ' archived' : (l.status !== 'published' ? ' closed' : '')) +
             '" data-id="' + esc(l.id) + '">' +
-            '<span class="nm">' + esc(l.title) + '</span>' +
+            '<span class="nm">' +
+              (archiveMode
+                ? '<input type="checkbox" class="pn-bksel bd-sel" data-id="' + esc(l.id) + '"' +
+                  (boardSel.has(l.id) ? ' checked' : '') + '> '
+                : '') +
+              esc(l.title) + '</span>' +
             '<span class="pn-pill ' + esc(l.status) + '">' + esc(l.status) + '</span>' +
             '<span class="rf">' + esc(l.address) + '</span>' +
             '<span class="mt">' + [l.rent, l.contact_name, 'by ' + l.submitted_by]
@@ -1669,8 +1710,45 @@ textarea.pn-in{min-height:60px; resize:vertical}
         Array.prototype.forEach.call(document.querySelectorAll('.pn-r'), function(el){
           el.addEventListener('click', function(){ openListing(el.dataset.id); });
         });
+        Array.prototype.forEach.call(document.querySelectorAll('.bd-sel'), function(cb){
+          cb.addEventListener('click', function(e){ e.stopPropagation(); });
+          cb.addEventListener('change', function(){
+            if(cb.checked) boardSel.add(cb.dataset.id); else boardSel.delete(cb.dataset.id);
+            boardCount();
+          });
+        });
+        if($('#bdSelAll')) $('#bdSelAll').addEventListener('change', function(){
+          var on = this.checked;
+          Array.prototype.forEach.call(document.querySelectorAll('.bd-sel'), function(cb){
+            cb.checked = on;
+            if(on) boardSel.add(cb.dataset.id); else boardSel.delete(cb.dataset.id);
+          });
+          boardCount();
+        });
+        if($('#bdPurgeSel')) $('#bdPurgeSel').onclick = function(){ purgeBoard(Array.from(boardSel), false); };
+        if($('#bdPurgeAll')) $('#bdPurgeAll').onclick = function(){ purgeBoard([], true); };
+        boardCount();
       })
       .catch(function(e){ $('#pnList').innerHTML = '<div class="pn-empty">' + esc(e.message) + '</div>'; });
+  }
+
+  function purgeBoard(ids, all){
+    var what = all ? 'ALL archived posts' : ids.length + ' selected post' + (ids.length === 1 ? '' : 's');
+    if(!confirm('Permanently delete ' + what + '?\n\nPhotos go with them and there is no undo. ' +
+                'A note of what was deleted is kept.')) return;
+    api('listingPurge', all ? {all: true} : {ids: ids}, 'POST')
+      .then(function(r){
+        boardSel.clear();
+        selected = null;
+        $('#pnPane').innerHTML = '<div class="pn-empty">Deleted ' + r.deleted + ' post' +
+          (r.deleted === 1 ? '' : 's') + ' permanently.</div>';
+        loadListings();
+        if(r.skipped && r.skipped.length){
+          alert('Skipped ' + r.skipped.length + ':\n' +
+            r.skipped.map(function(x){ return x.id.slice(0,8) + '\u2026 (' + x.why + ')'; }).join('\n'));
+        }
+      })
+      .catch(function(e){ alert('Could not delete:\n\n' + e.message); });
   }
 
   function listingFields(l){
@@ -2025,28 +2103,33 @@ textarea.pn-in{min-height:60px; resize:vertical}
     var images = [];
     try { images = JSON.parse(l.images || '[]'); } catch(x){}
 
+    var archived = !!l.archived_at;
+
     $('#pnPane').innerHTML =
       '<h2 class="pn-h2">' + esc(l.title) + '</h2>' +
       '<div class="pn-refbig"><span class="pn-pill ' + esc(l.status) + '">' + esc(l.status) + '</span>' +
-      (l.status === 'published'
-        ? '<a class="pn-cp" href="/listings/' + esc(l.slug) + '" target="_blank" rel="noopener">View it live</a>'
-        : '<span class="pn-hint2" style="margin:0">Not public until you set it to published</span>') +
+      (archived
+        ? '<span class="pn-hint2" style="margin:0">Archived ' + esc(when(l.archived_at)) +
+          (l.archived_by ? ' by ' + esc(l.archived_by) : '') + ' \u2014 not public</span>'
+        : (l.status === 'published'
+          ? '<a class="pn-cp" href="/listings/' + esc(l.slug) + '" target="_blank" rel="noopener">View it live</a>'
+          : '<span class="pn-hint2" style="margin:0">Not public until you set it to published</span>')) +
       '</div>' +
       '<div class="pn-sec"><h3>Photos</h3>' +
       '<div class="pn-photos" id="ls_gallery">' + images.map(function(src, i){
         return '<figure class="pn-photo"><img src="' + esc(src) + '" alt="" loading="lazy">' +
-          (isOwner() ? '<figcaption><button class="del" data-i="' + i + '">remove</button></figcaption>' : '') +
+          (archived ? '' : '<figcaption><button class="del" data-i="' + i + '">remove</button></figcaption>') +
           '</figure>';
       }).join('') + '</div>' +
       (images.length ? '' : '<p class="pn-hint2" style="margin-top:0">No photos yet.</p>') +
-      (isOwner()
-        ? '<div class="pn-inline"><input type="file" id="ls_file" class="pn-in" ' +
+      (archived
+        ? ''
+        : '<div class="pn-inline"><input type="file" id="ls_file" class="pn-in" ' +
           'accept="image/jpeg,image/png,image/webp,image/gif" multiple>' +
           '<button class="pn-b" id="ls_upload">Upload</button></div>' +
           '<p class="pn-hint2">JPEG, PNG, WebP or GIF. Large photos straight off a phone are ' +
           'fine: they are resized in your browser before uploading. Select as many as you ' +
-          'like, up to 30 per listing. They go live as soon as they finish.</p>'
-        : '') +
+          'like, up to 30 per listing. They go live as soon as they finish.</p>') +
       '<div class="pn-msg2" id="ls_upmsg"></div></div>' +
       '<div class="pn-sec"><h3>Details</h3><table class="pn-t">' +
       row('Address', l.address + ', ' + l.city) + row('Rent', l.rent) + row('Deposit', l.deposit) +
@@ -2069,21 +2152,30 @@ textarea.pn-in{min-height:60px; resize:vertical}
       '</table></div>' +
 
       '<div class="pn-sec"><h3>Share with a client</h3>' +
-      (l.status === 'published'
-        ? '<div class="pn-inline"><select id="lsClient" class="pn-in">' + clientOptions(null) + '</select>' +
-          '<button class="pn-b" id="lsShare">Send it</button></div>' +
-          '<p class="pn-hint2">Sends the branded property email with the photos and the lister\u2019s ' +
-          'own contact details, and logs it against that client.</p>'
-        : '<p class="pn-hint2" style="margin-top:0">Publish it first.</p>') +
+      (archived
+        ? '<p class="pn-hint2" style="margin-top:0">Archived posts cannot be shared. Restore it first.</p>'
+        : (l.status === 'published'
+          ? '<div class="pn-inline"><select id="lsClient" class="pn-in">' + clientOptions(null) + '</select>' +
+            '<button class="pn-b" id="lsShare">Send it</button></div>' +
+            '<p class="pn-hint2">Sends the branded property email with the photos and the lister\u2019s ' +
+            'own contact details, and logs it against that client.</p>'
+          : '<p class="pn-hint2" style="margin-top:0">Publish it first.</p>')) +
       '<div class="pn-msg2" id="lsShareMsg"></div></div>' +
 
-      (isOwner()
+      (archived
         ? '<div class="pn-sec"><div class="pn-acts">' +
+          '<button class="pn-b" id="lsRestore">Restore to the board</button>' +
+          (isOwner() ? '<button class="pn-b rd" id="lsPurge">Delete permanently</button>' : '') +
+          '</div>' +
+          '<p class="pn-hint2">Restoring puts it back as a <b>draft</b>, so nothing reappears on the ' +
+          'public site until somebody publishes it again.</p></div>'
+        : '<div class="pn-sec"><div class="pn-acts">' +
           '<button class="pn-b gh" id="lsEdit">Edit</button>' +
-          '<button class="pn-b rd" id="lsDel">Delete</button></div></div>'
-        : '');
+          '<button class="pn-b rd" id="lsDel">Archive</button></div>' +
+          '<p class="pn-hint2">Archiving takes it off the board and the public site and keeps ' +
+          'everything, photos included. Find it again under <b>Board archive</b>.</p></div>');
 
-    wireUpload(l);
+    if(!archived) wireUpload(l);
 
     /* Removal rewrites the array. The object stays in R2, which is the cheaper
        mistake if the wrong one is removed. */
@@ -2113,13 +2205,24 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
     if($('#lsEdit')) $('#lsEdit').onclick = function(){ listingForm(l); };
     if($('#lsDel')) $('#lsDel').onclick = function(){
-      if(!confirm('Delete "' + l.title + '" from the board?')) return;
-      api('listingDelete', {id: id}, 'POST').then(function(){
+      if(!confirm('Archive "' + l.title + '"?\n\nIt comes off the board and the public site. ' +
+                  'Nothing is deleted, and it can be restored from the Board archive.')) return;
+      api('listingArchive', {id: id}, 'POST').then(function(){
         selected = null;
-        $('#pnPane').innerHTML = '<div class="pn-empty">Deleted.</div>';
+        $('#pnPane').innerHTML = '<div class="pn-empty"><div>Archived. ' +
+          'Find it again under <b>Board archive</b>.</div></div>';
         loadListings();
-      });
+      }).catch(function(e){ note('#ls_upmsg', e.message, false); });
     };
+    if($('#lsRestore')) $('#lsRestore').onclick = function(){
+      api('listingUnarchive', {id: id}, 'POST').then(function(){
+        selected = null;
+        $('#pnPane').innerHTML = '<div class="pn-empty"><div>Restored as a draft. ' +
+          'It is back on the <b>Live board</b>.</div></div>';
+        loadListings();
+      }).catch(function(e){ note('#lsShareMsg', e.message, false); });
+    };
+    if($('#lsPurge')) $('#lsPurge').onclick = function(){ purgeBoard([id], false); };
   }
 
   /* Sending the same email to many clients at once.
@@ -2145,19 +2248,44 @@ textarea.pn-in{min-height:60px; resize:vertical}
       '<option value="documents">Ask for documents &mdash; paid clients</option>' +
       '<option value="receipt">Receipt / confirmation &mdash; paid clients</option>' +
       '<option value="reminder">Payment reminder &mdash; unpaid only, max two each</option>' +
+      '<option value="custom">Custom email &mdash; written below, everyone chosen</option>' +
       '</select></div>' +
-      '<div class="wide"><label for="bk_note">Extra line (optional, documents only)</label>' +
+      '<div class="wide" id="bk_noteWrap"><label for="bk_note">Extra line (optional, documents only)</label>' +
       '<input id="bk_note" class="pn-in" placeholder="e.g. We are viewing three places next week."></div>' +
+      '<div class="wide" id="bk_customWrap" style="display:none">' +
+        '<label for="bk_heading">Heading</label>' +
+        '<input id="bk_heading" class="pn-in" placeholder="An update from FastKeys">' +
+        '<label for="bk_body" style="margin-top:10px">Message</label>' +
+        '<textarea id="bk_body" class="pn-in" style="min-height:150px" placeholder="Blank lines start a new paragraph. Everyone gets the same words."></textarea>' +
+        '<div class="pn-grid" style="margin-top:10px">' +
+        '<div><label for="bk_ctal">Button label (optional)</label><input id="bk_ctal" class="pn-in" placeholder="See the listings"></div>' +
+        '<div><label for="bk_ctau">Button link (optional)</label><input id="bk_ctau" class="pn-in" placeholder="https://..."></div>' +
+        '</div></div>' +
       '</div>' +
       '<div class="pn-acts"><button class="pn-b" id="bkCheck">See who would get it</button>' +
       '<button class="pn-b gh" id="bkCancel">Cancel</button></div>' +
       '<div class="pn-msg2" id="bkMsg"></div><div id="bkResult"></div>';
     $('#pnModal').classList.add('open');
     $('#bkCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+    /* The custom fields appear only when that kind is chosen, and the fixed
+       templates' note field disappears with them: what is on screen is what
+       will be sent. */
+    $('#bk_kind').onchange = function(){
+      var custom = this.value === 'custom';
+      $('#bk_customWrap').style.display = custom ? '' : 'none';
+      $('#bk_noteWrap').style.display = custom ? 'none' : '';
+    };
 
     var gather = function(){
-      return {kind: $('#bk_kind').value, note: $('#bk_note').value.trim(),
-              references: bulkChosen()};
+      var out = {kind: $('#bk_kind').value, note: $('#bk_note').value.trim(),
+                 references: bulkChosen()};
+      if(out.kind === 'custom'){
+        out.heading = $('#bk_heading').value.trim();
+        out.body = $('#bk_body').value;
+        out.ctaLabel = $('#bk_ctal').value.trim();
+        out.ctaUrl = $('#bk_ctau').value.trim();
+      }
+      return out;
     };
 
     $('#bkCheck').onclick = function(){
@@ -2447,6 +2575,78 @@ textarea.pn-in{min-height:60px; resize:vertical}
         }).join('');
       })
       .catch(function(){ if($('#mLog')) $('#mLog').innerHTML = '<p class="pn-hint2">Could not load the history.</p>'; });
+  }
+
+  /* ------------------------------------------------------------- compose
+     A custom email to anybody at all, client or not. Sends go out branded and
+     are logged under ADHOC, and that history is the list on the left, so what
+     was sent to a landlord or an agency last month is one click away. */
+  function loadCompose(){
+    $('#pnList').innerHTML = '<div class="pn-empty">Loading\u2026</div>';
+    api('sentEmails', {q: $('#pnQ').value.trim()})
+      .then(function(d){
+        sentRows = d.rows.filter(function(r){ return r.reference === 'ADHOC'; });
+        $('#pnStats').innerHTML = '<span><b>' + sentRows.length + '</b> sent</span>';
+        if(!sentRows.length){
+          $('#pnList').innerHTML = '<div class="pn-empty"><div>Nothing sent from here yet.<br>' +
+            'Emails to non-clients will be listed here.</div></div>';
+          return;
+        }
+        $('#pnList').innerHTML = sentRows.map(function(r){
+          return '<div class="pn-mailrow" data-id="' + esc(r.id) + '">' +
+            '<span class="nm">' + esc(r.subject) + '</span>' +
+            '<span class="pn-logkind' + (r.status === 'failed' ? ' failed' : '') + '">' + esc(r.kind) + '</span>' +
+            '<span class="mt" style="grid-column:1/-1">to ' + esc(r.recipient) +
+              ' \u00b7 ' + esc(when(r.sent_at)) + ' \u00b7 by ' + esc(r.sent_by) + '</span>' +
+            '</div>';
+        }).join('');
+        Array.prototype.forEach.call(document.querySelectorAll('.pn-mailrow'), function(el){
+          el.addEventListener('click', function(){ openSent(el.dataset.id); });
+        });
+      })
+      .catch(function(e){ $('#pnList').innerHTML = '<div class="pn-empty">' + esc(e.message) + '</div>'; });
+  }
+
+  function composeForm(sentNote){
+    selected = null;
+    Array.prototype.forEach.call(document.querySelectorAll('.pn-mailrow'), function(el){
+      el.classList.remove('sel');
+    });
+    $('#pnPane').classList.add('open');
+    $('#pnPane').innerHTML =
+      '<h2 class="pn-h2">Write an email</h2>' +
+      '<p class="pn-hint2" style="margin-top:6px">Branded like every other FastKeys email, and ' +
+      'logged. Goes to anybody: a landlord, an agency, anyone who is not a client. ' +
+      'For clients, use the Mail tab so it lands in their history.</p>' +
+      (sentNote ? '<div class="pn-msg2 show ok" style="margin-top:10px">' + esc(sentNote) + '</div>' : '') +
+      '<div class="pn-grid">' +
+      '<div class="wide"><label for="cm_to">To</label>' +
+        '<input id="cm_to" class="pn-in" type="email" placeholder="somebody@example.com"></div>' +
+      '<div class="wide"><label for="cm_heading">Heading</label>' +
+        '<input id="cm_heading" class="pn-in" placeholder="About your listing on Brusselsestraat"></div>' +
+      '<div class="wide"><label for="cm_body">Message</label>' +
+        '<textarea id="cm_body" class="pn-in" style="min-height:180px" placeholder="Blank lines start a new paragraph."></textarea></div>' +
+      '<div><label for="cm_ctal">Button label (optional)</label><input id="cm_ctal" class="pn-in" placeholder="View the listing"></div>' +
+      '<div><label for="cm_ctau">Button link (optional)</label><input id="cm_ctau" class="pn-in" placeholder="https://..."></div>' +
+      '</div>' +
+      '<div class="pn-acts"><button class="pn-b" id="cmSend">Send it</button></div>' +
+      '<div class="pn-msg2" id="cmMsg"></div>';
+
+    $('#cmSend').onclick = function(){
+      var btn = $('#cmSend');
+      btn.disabled = true; btn.textContent = 'Sending\u2026';
+      api('sendCustom', {
+        to: $('#cm_to').value.trim(),
+        heading: $('#cm_heading').value.trim(), body: $('#cm_body').value,
+        ctaLabel: $('#cm_ctal').value.trim(), ctaUrl: $('#cm_ctau').value.trim()
+      }, 'POST').then(function(res){
+        loadCompose();
+        composeForm('Sent to ' + res.sentTo + '.');
+      }).catch(function(e){
+        btn.disabled = false; btn.textContent = 'Send it';
+        note('#cmMsg', e.message, false);
+      });
+    };
   }
 
   /* The property composer. Image URLs rather than uploads: a listing photo is
@@ -2742,23 +2942,30 @@ textarea.pn-in{min-height:60px; resize:vertical}
       });
       var clients = view === 'clients';
       var archived = view === 'archived';
+      var board = view === 'listings';
       $('#pnKind').style.display = clients ? '' : 'none';
       $('#pnMailKind').style.display = view === 'mail' ? '' : 'none';
+      $('#pnBoardKind').style.display = board ? '' : 'none';
       $('#pnStatus').style.display = (clients || archived) ? '' : 'none';
       $('#pnFilters').style.display = (clients || archived) ? '' : 'none';
       if($('#pnRecon')) $('#pnRecon').style.display = (clients && isOwner()) ? '' : 'none';
       if($('#pnNew')) $('#pnNew').style.display = (clients && isOwner()) ? '' : 'none';
-      if($('#pnNewListing')) $('#pnNewListing').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
-      if($('#pnImport')) $('#pnImport').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
+      /* The board is staff work, so its buttons show for everyone signed in,
+         and only on the live board: nothing new goes straight into an archive. */
+      var liveBoard = board && !boardArchiveMode();
+      if($('#pnNewListing')) $('#pnNewListing').style.display = liveBoard ? '' : 'none';
+      if($('#pnImport')) $('#pnImport').style.display = liveBoard ? '' : 'none';
       if($('#pnBulk')) $('#pnBulk').style.display =
         (view === 'mail' && $('#pnMailKind').value === 'clients' && isOwner()) ? '' : 'none';
-      if($('#pnPaste')) $('#pnPaste').style.display = (view === 'listings' && isOwner()) ? '' : 'none';
+      if($('#pnPaste')) $('#pnPaste').style.display = liveBoard ? '' : 'none';
+      if($('#pnComposeNew')) $('#pnComposeNew').style.display = view === 'compose' ? '' : 'none';
       selected = null;
       $('#pnPane').innerHTML = '<div class="pn-empty"><div>' +
         (view === 'mail' ? 'Select somebody to see what has been sent to them.'
          : archived ? 'Select an archived client to see everything we hold,<br>or to restore them.'
          : 'Select an entry.') + '</div></div>';
       load();
+      if(view === 'compose') composeForm();
     });
   });
 
@@ -2779,6 +2986,18 @@ textarea.pn-in{min-height:60px; resize:vertical}
        : 'Select somebody to see what has been sent to them.') + '</div></div>';
     load();
   });
+  $('#pnBoardKind').addEventListener('change', function(){
+    selected = null;
+    var archive = this.value === 'archived';
+    if($('#pnNewListing')) $('#pnNewListing').style.display = archive ? 'none' : '';
+    if($('#pnImport')) $('#pnImport').style.display = archive ? 'none' : '';
+    if($('#pnPaste')) $('#pnPaste').style.display = archive ? 'none' : '';
+    $('#pnPane').innerHTML = '<div class="pn-empty"><div>' +
+      (archive ? 'Select an archived post to restore it' + (isOwner() ? ' or delete it for good.' : '.')
+       : 'Select a post, or add one.') + '</div></div>';
+    load();
+  });
+  $('#pnComposeNew').addEventListener('click', function(){ composeForm(); });
 
   fetch('/api/admin/me', {credentials:'same-origin'})
     .then(function(r){ return r.json(); })
