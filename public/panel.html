@@ -2329,79 +2329,143 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
   }
 
-  /* The one sanctioned way to email the archive: asks every archived client
-     whether we should start looking for them again. Same discipline as every
-     other blast — a dry run first, and the send is a second, confirmed click. */
+  /* The one sanctioned way to email the archive: asks archived clients whether
+     we should start looking for them again. Tick one, several, or Select all
+     for the whole archive. Same discipline as every other blast — a dry run
+     first, and the send is a second, confirmed click. */
   function stillArchivedDialog(){
     $('#pnModalBox').innerHTML =
       '<h3 style="font-size:17px;margin-bottom:6px">Ask the archive: still looking?</h3>' +
-      '<p class="pn-hint2" style="margin-top:0">Sends the check-in to <b>every archived client</b>, ' +
-      'in its \u201cwant us to start looking again?\u201d wording, with one-tap Yes and No buttons. ' +
-      'One email each. Unpaid and placed clients are skipped. This is the only email that can ' +
-      'reach the archive.</p>' +
-      '<div class="pn-grid"><div class="wide"><label for="sa_note">Extra line (optional)</label>' +
-      '<input id="sa_note" class="pn-in" placeholder="e.g. The new academic year is filling up fast."></div></div>' +
-      '<div class="pn-acts"><button class="pn-b" id="saCheck">See who would get it</button>' +
-      '<button class="pn-b gh" id="saCancel">Cancel</button></div>' +
-      '<div class="pn-msg2" id="saMsg"></div><div id="saResult"></div>';
+      '<p class="pn-hint2" style="margin-top:0">Loading the archive\u2026</p>';
     $('#pnModal').classList.add('open');
-    $('#saCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
 
-    $('#saCheck').onclick = function(){
-      api('sendBulk', {kind: 'stillLookingArchived', note: $('#sa_note').value.trim(), dryRun: true}, 'POST')
-        .then(function(r){
-          var skipped = (r.list || []).filter(function(x){ return x.skipped; });
-          $('#saResult').innerHTML =
-            '<div class="pn-sec"><h3>' + r.willSend + ' of ' + r.total + ' archived clients would receive it</h3>' +
-            (skipped.length
-              ? '<p class="pn-hint2" style="margin-top:0">Skipped: ' +
-                skipped.slice(0,12).map(function(x){ return esc(x.reference) + ' (' + esc(x.skipped) + ')'; }).join(', ') +
-                (skipped.length > 12 ? ' and ' + (skipped.length - 12) + ' more' : '') + '</p>'
-              : '') +
-            (r.willSend
-              ? '<div class="pn-acts"><button class="pn-b" id="saGo">Send to ' + r.willSend + ' now</button></div>'
-              : '<p class="pn-hint2">Nobody in the archive qualifies.</p>') +
-            '<div class="pn-msg2" id="saGoMsg"></div></div>';
-          if($('#saGo')) $('#saGo').onclick = function(){
-            if(!confirm('Send the check-in to ' + r.willSend + ' archived clients?\n\nThere is no undo.')) return;
-            var btn = $('#saGo'); btn.disabled = true; btn.textContent = 'Sending\u2026';
-            api('sendBulk', {kind: 'stillLookingArchived', note: $('#sa_note').value.trim()}, 'POST')
-              .then(function(res){
-                $('#pnModal').classList.remove('open');
-                alert('Sent to ' + res.sent + '.' +
-                  (res.failed && res.failed.length
-                    ? '\n\nFailed: ' + res.failed.map(function(f){ return f.reference + ' (' + f.error + ')'; }).join('; ')
-                    : ''));
-                load();
-              })
-              .catch(function(e){
-                btn.disabled = false; btn.textContent = 'Send now';
-                note('#saGoMsg', e.message, false);
-              });
-          };
-        })
-        .catch(function(e){ note('#saMsg', e.message, false); });
+    api('list', {archived: 'only'}).then(function(d){
+      var items = (d.rows || []).map(function(r){
+        return {reference: r.reference, name: r.name, status: r.status};
+      });
+      $('#pnModalBox').innerHTML =
+        '<h3 style="font-size:17px;margin-bottom:6px">Ask the archive: still looking?</h3>' +
+        '<p class="pn-hint2" style="margin-top:0">Sends the check-in in its \u201cwant us to start ' +
+        'looking again?\u201d wording, with one-tap Yes and No buttons. Tick one or more archived ' +
+        'clients, or Select all for the whole archive. One email each. Unpaid and placed clients ' +
+        'are skipped. This is the only email that can reach the archive, and sending it restores ' +
+        'nobody.</p>' +
+        pickerHtml('sa', items, null) +
+        '<div class="pn-grid" style="margin-top:14px"><div class="wide"><label for="sa_note">Extra line (optional)</label>' +
+        '<input id="sa_note" class="pn-in" placeholder="e.g. The new academic year is filling up fast."></div></div>' +
+        '<div class="pn-acts"><button class="pn-b" id="saCheck"' + (items.length ? '' : ' disabled') +
+        '>See who would get it</button>' +
+        '<button class="pn-b gh" id="saCancel">Cancel</button></div>' +
+        '<div class="pn-msg2" id="saMsg"></div><div id="saResult"></div>';
+      $('#saCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+
+      var getChosen = wirePicker('sa', items);
+
+      $('#saCheck').onclick = function(){
+        var refs = getChosen();
+        if(!refs.length){
+          return note('#saMsg', 'Tick at least one archived client, or use Select all.', false);
+        }
+        api('sendBulk', {kind: 'stillLookingArchived', references: refs,
+                         note: $('#sa_note').value.trim(), dryRun: true}, 'POST')
+          .then(function(r){
+            var skipped = (r.list || []).filter(function(x){ return x.skipped; });
+            $('#saResult').innerHTML =
+              '<div class="pn-sec"><h3>' + r.willSend + ' of ' + r.total + ' archived clients would receive it</h3>' +
+              (skipped.length
+                ? '<p class="pn-hint2" style="margin-top:0">Skipped: ' +
+                  skipped.slice(0,12).map(function(x){ return esc(x.reference) + ' (' + esc(x.skipped) + ')'; }).join(', ') +
+                  (skipped.length > 12 ? ' and ' + (skipped.length - 12) + ' more' : '') + '</p>'
+                : '') +
+              (r.willSend
+                ? '<div class="pn-acts"><button class="pn-b" id="saGo">Send to ' + r.willSend + ' now</button></div>'
+                : '<p class="pn-hint2">Nobody ticked qualifies.</p>') +
+              '<div class="pn-msg2" id="saGoMsg"></div></div>';
+            if($('#saGo')) $('#saGo').onclick = function(){
+              if(!confirm('Send the check-in to ' + r.willSend + ' archived clients?\n\nThere is no undo.')) return;
+              var btn = $('#saGo'); btn.disabled = true; btn.textContent = 'Sending\u2026';
+              api('sendBulk', {kind: 'stillLookingArchived', references: refs,
+                               note: $('#sa_note').value.trim()}, 'POST')
+                .then(function(res){
+                  $('#pnModal').classList.remove('open');
+                  alert('Sent to ' + res.sent + '.' +
+                    (res.failed && res.failed.length
+                      ? '\n\nFailed: ' + res.failed.map(function(f){ return f.reference + ' (' + f.error + ')'; }).join('; ')
+                      : ''));
+                  load();
+                })
+                .catch(function(e){
+                  btn.disabled = false; btn.textContent = 'Send now';
+                  note('#saGoMsg', e.message, false);
+                });
+            };
+          })
+          .catch(function(e){ note('#saMsg', e.message, false); });
+      };
+    }).catch(function(e){
+      $('#pnModalBox').innerHTML =
+        '<h3 style="font-size:17px;margin-bottom:6px">Ask the archive: still looking?</h3>' +
+        '<p class="pn-hint2">' + esc(e.message) + '</p>' +
+        '<div class="pn-acts"><button class="pn-b gh" id="saCancel">Close</button></div>';
+      $('#saCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+    });
+  }
+
+  /* A tickable client list for the bulk dialogs: Select all, one box per
+     client, a live count, and a chosen() the caller reads. The dialogs share
+     it so "select all or several" behaves identically everywhere. */
+  function pickerHtml(prefix, items, pre){
+    if(!items.length) return '<p class="pn-hint2">Nobody to choose from.</p>';
+    return '<div class="pn-selbar" style="padding:8px 0">' +
+      '<label><input type="checkbox" id="' + prefix + 'All"> Select all</label>' +
+      '<span id="' + prefix + 'Count"></span></div>' +
+      '<div style="max-height:240px;overflow:auto;border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:6px 10px">' +
+      items.map(function(c){
+        return '<label style="display:flex;gap:9px;align-items:center;padding:5px 0;cursor:pointer">' +
+          '<input type="checkbox" class="' + prefix + '-pick pn-bksel" value="' + esc(c.reference) + '"' +
+          (pre && pre.has(c.reference) ? ' checked' : '') + '>' +
+          '<span style="color:var(--chalk);font-size:13.6px">' + esc(c.name) + '</span>' +
+          '<span style="color:rgba(237,239,242,.4);font-size:12.3px">' + esc(c.reference) +
+          (c.status ? ' \u00b7 ' + esc(c.status) : '') + '</span></label>';
+      }).join('') + '</div>';
+  }
+  function wirePicker(prefix, items, onChange){
+    var boxes = function(){ return document.querySelectorAll('.' + prefix + '-pick'); };
+    var chosen = function(){
+      return Array.prototype.map.call(document.querySelectorAll('.' + prefix + '-pick:checked'),
+        function(cb){ return cb.value; });
     };
+    var count = function(){
+      var n = chosen().length;
+      if($('#' + prefix + 'Count')) $('#' + prefix + 'Count').textContent = n ? n + ' selected' : '';
+      if($('#' + prefix + 'All')) $('#' + prefix + 'All').checked = n > 0 && n === items.length;
+      if(onChange) onChange(chosen());
+    };
+    Array.prototype.forEach.call(boxes(), function(cb){ cb.addEventListener('change', count); });
+    if($('#' + prefix + 'All')) $('#' + prefix + 'All').addEventListener('change', function(){
+      var on = this.checked;
+      Array.prototype.forEach.call(boxes(), function(cb){ cb.checked = on; });
+      count();
+    });
+    count();
+    return chosen;
   }
 
   /* Sending the same email to many clients at once.
-     Who gets it is chosen with the tickboxes in the mail list; with nothing
-     ticked it goes to everyone shown, which is the old send-to-all. Always
-     previewed first: this is the one action in the panel with no undo, and the
-     preview is what turns a bulk send from a leap into a decision. */
+     Who gets it is chosen right here in the dialog: tick one or more clients,
+     or Select all for everyone. Ticks made in the mail list beforehand arrive
+     pre-selected. Always previewed first: this is the one action in the panel
+     with no undo, and the preview is what turns a bulk send from a leap into a
+     decision. */
   function bulkDialog(){
-    var chosen = bulkChosen();
-    var toAll = !bulkSel.size;
+    var rows = window.__mailRows || [];
     $('#pnModalBox').innerHTML =
       '<h3 style="font-size:17px;margin-bottom:6px">Bulk email</h3>' +
-      '<p class="pn-hint2" style="margin-top:0">' +
-      (toAll
-        ? 'No boxes are ticked, so this goes to <b>everyone shown</b> (' + chosen.length + '). ' +
-          'Tick clients in the list first to narrow it down.'
-        : 'Going to the <b>' + chosen.length + ' ticked</b> client' + (chosen.length === 1 ? '' : 's') + '.') +
-      ' One email each, sent separately, so nobody sees anyone else\u2019s address. ' +
-      'Archived clients are always skipped.</p>' +
-      '<div class="pn-grid">' +
+      '<p class="pn-hint2" style="margin-top:0">Tick who gets it \u2014 one or more, or Select all ' +
+      'for everyone shown. One email each, sent separately, so nobody sees anyone else\u2019s ' +
+      'address. Archived clients are never on this list.</p>' +
+      pickerHtml('bk', rows, bulkSel) +
+      '<div class="pn-grid" style="margin-top:14px">' +
       '<div class="wide"><label for="bk_kind">Which email</label>' +
       '<select id="bk_kind" class="pn-in">' +
       '<option value="documents">Ask for documents &mdash; paid clients</option>' +
@@ -2426,7 +2490,13 @@ textarea.pn-in{min-height:60px; resize:vertical}
       '<button class="pn-b gh" id="bkCancel">Cancel</button></div>' +
       '<div class="pn-msg2" id="bkMsg"></div><div id="bkResult"></div>';
     $('#pnModal').classList.add('open');
-    $('#bkCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+
+    /* The dialog's ticks are the real selection: mirror them into bulkSel so
+       the list shows the same state after the dialog closes, however it
+       closes. */
+    var getChosen = wirePicker('bk', rows, function(refs){ bulkSel = new Set(refs); });
+    $('#bkCancel').onclick = function(){ $('#pnModal').classList.remove('open'); loadMail(); };
+
     /* The custom fields appear only when that kind is chosen, and the fixed
        templates' note field disappears with them: what is on screen is what
        will be sent. */
@@ -2438,7 +2508,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
 
     var gather = function(){
       var out = {kind: $('#bk_kind').value, note: $('#bk_note').value.trim(),
-                 references: bulkChosen()};
+                 references: getChosen()};
       if(out.kind === 'custom'){
         out.heading = $('#bk_heading').value.trim();
         out.body = $('#bk_body').value;
@@ -2449,7 +2519,11 @@ textarea.pn-in{min-height:60px; resize:vertical}
     };
 
     $('#bkCheck').onclick = function(){
-      var body = gather(); body.dryRun = true;
+      var body = gather();
+      if(!body.references.length){
+        return note('#bkMsg', 'Tick at least one client, or use Select all.', false);
+      }
+      body.dryRun = true;
       api('sendBulk', body, 'POST').then(function(r){
         var skipped = (r.list || []).filter(function(x){ return x.skipped; });
         $('#bkResult').innerHTML =
@@ -2461,7 +2535,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
             : '') +
           (r.willSend
             ? '<div class="pn-acts"><button class="pn-b" id="bkGo">Send to ' + r.willSend + ' now</button></div>'
-            : '<p class="pn-hint2">Nobody on this list qualifies.</p>') +
+            : '<p class="pn-hint2">Nobody ticked qualifies.</p>') +
           '<div class="pn-msg2" id="bkGoMsg"></div></div>';
         if($('#bkGo')) $('#bkGo').onclick = function(){
           if(!confirm('Send this to ' + r.willSend + ' clients?\n\nThere is no undo.')) return;
@@ -2484,22 +2558,19 @@ textarea.pn-in{min-height:60px; resize:vertical}
   }
 
   /* Which clients are ticked for a bulk email. Kept across refreshes of the
-     list, so ticking, searching, and ticking more all add up. */
+     list, so ticking, searching, and ticking more all add up, and the bulk
+     dialog opens with the same clients pre-selected. */
   var bulkSel = new Set();
   function bulkChosen(){
-    /* Ticked clients; with nothing ticked, everyone currently shown. */
     var shown = (window.__mailRows || []).map(function(r){ return r.reference; });
-    if(!bulkSel.size) return shown;
     return shown.filter(function(ref){ return bulkSel.has(ref); });
   }
   function bulkCount(){
     var n = bulkChosen().length;
     var el = $('#pnSelCount');
-    if(el) el.textContent = bulkSel.size
-      ? n + ' selected'
-      : 'none ticked \u2014 a bulk email would go to all ' + n + ' shown';
+    if(el) el.textContent = n ? n + ' selected \u2014 pre-ticked in Bulk email' : '';
     var all = $('#pnSelAll');
-    if(all) all.checked = bulkSel.size > 0 && n === (window.__mailRows || []).length;
+    if(all) all.checked = n > 0 && n === (window.__mailRows || []).length;
   }
 
   function loadMail(){
