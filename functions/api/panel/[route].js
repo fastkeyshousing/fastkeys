@@ -20,6 +20,7 @@ import { sendAndLog } from '../../../lib/send-log.js';
 import { customEmail } from '../../../lib/custom-email.js';
 import { landlordEmail } from '../../../lib/landlord-email.js';
 import { documentsEmail } from '../../../lib/documents-email.js';
+import { stillLookingEmail } from '../../../lib/still-looking-email.js';
 
 const REF_RE = /^FK-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
 const VREF_RE = /^FV-[A-Z0-9]{5}-[A-Z0-9]{3}$/;
@@ -32,8 +33,9 @@ const STATUSES = ['pending', 'paid', 'expired', 'failed'];
 const OWNER_ONLY = new Set(['update', 'remove', 'create', 'updateEmail', 'reconcile',
   'archive', 'unarchive', 'deletions',
   /* A cold email naming a client's income, sent outside the business, with
-   * something offered in return. Owner's decision. */
-  'sendLandlord', 'sendBulk',
+   * something offered in return. Owner's decision. Bulk sends of any kind sit
+   * here too: one press reaching every client is the owner's blast radius. */
+  'sendLandlord', 'sendBulk', 'shareListingBulk',
   /* The noticeboard itself is day-to-day work and open to staff: adding,
    * editing, publishing, importing and archiving posts. Only the permanent
    * destruction of archived posts stays with the owner, matching how client
@@ -52,7 +54,13 @@ const EDITABLE = [
 /* Archived means taken off the books deliberately. Nothing may be emailed to an
  * archived client from anywhere: they are filtered out of the mail view, the
  * bulk send skips them, and every single-send route calls this guard so the
- * rule holds even for a request crafted outside the interface. */
+ * rule holds even for a request crafted outside the interface.
+ *
+ * One deliberate exception exists: the still-looking check-in, and only when
+ * explicitly aimed at archived clients (sendStillLooking with toArchived, or
+ * sendBulk's stillLookingArchived kind). That email asks whether to reopen a
+ * closed search — the single question an archived client can sensibly be
+ * asked — and it never fires implicitly. */
 function refuseIfArchived(row) {
   if (row && row.archived_at) {
     throw new Error('This client is archived. Restore them from the Archived tab before emailing.');
@@ -1039,6 +1047,59 @@ const routes = {
     return { ok: true, sentTo: to };
   },
 
+  /* The same published post to many clients at once, or to all of them.
+   *
+   * The listing is validated once up front, then each send goes through
+   * shareListing so the email, the logging and the archived guards stay one
+   * implementation. Eligibility mirrors sendBulk: archived clients were taken
+   * off the list deliberately, and placed clients already have a home, so both
+   * are skipped and reported rather than quietly emailed. Always offered as a
+   * dry run first by the interface. */
+  async shareListingBulk(env, { id, references, dryRun }, user) {
+    if (!/^[0-9a-f-]{36}$/.test(id || '')) throw new Error('Bad id');
+    const listing = await env.DB.prepare(
+      `SELECT id, title, status, archived_at FROM listings WHERE id = ?1`
+    ).bind(id).first();
+    if (!listing) throw new Error('No such listing');
+    if (listing.archived_at) throw new Error('This post is archived. Restore it before sharing it.');
+    if (listing.status !== 'published') throw new Error('Publish it before sharing it');
+
+    const refs = (Array.isArray(references) ? references : [])
+      .filter((r) => REF_RE.test(String(r || ''))).slice(0, 200);
+    if (!refs.length) throw new Error('Nobody selected');
+
+    const list = [];
+    for (const reference of refs) {
+      const row = await env.DB.prepare(
+        `SELECT reference, name, email, archived_at, case_closed_at
+           FROM applications WHERE reference = ?1`
+      ).bind(reference).first();
+      if (!row) { list.push({ reference, skipped: 'not found' }); continue; }
+      if (row.archived_at) { list.push({ reference, skipped: 'archived' }); continue; }
+      if (row.case_closed_at) { list.push({ reference, skipped: 'already placed' }); continue; }
+      list.push({ reference, name: row.name, email: row.email, ok: true });
+    }
+
+    const willSend = list.filter((x) => x.ok);
+    if (dryRun) {
+      return { dryRun: true, willSend: willSend.length, total: list.length, list };
+    }
+
+    const sent = [];
+    const failed = [];
+    for (const item of willSend) {
+      try {
+        await routes.shareListing(env, { id, reference: item.reference }, user);
+        sent.push(item.reference);
+      } catch (err) {
+        failed.push({ reference: item.reference, error: String(err.message || err).slice(0, 140) });
+      }
+    }
+
+    console.log(`[bulk] ${user.email} shared listing "${listing.title}" with ${sent.length}, ${failed.length} failed`);
+    return { ok: true, sent: sent.length, failed, skipped: list.filter((x) => x.skipped) };
+  },
+
   /* Approaches a landlord or agency about one property, for one client.
    *
    * Owner only. A cold email that names a real applicant's income and offers
@@ -1214,6 +1275,44 @@ const routes = {
    * A snapshot goes to deletion_log first, so afterwards there is still an answer
    * to "was this deleted, or did it never exist". */
   /* Asks one client for their paperwork. */
+  /* The check-in: should we keep looking for you? Paid clients only, because
+   * an unpaid signup has no search running to ask about, and never anybody
+   * placed. Usually sent through sendBulk, but it works alone.
+   *
+   * The one deliberate exception to the archive rule lives here: with
+   * toArchived set, this email may go to an archived client, in its "want us
+   * to start looking again?" wording. It is the only email with that power,
+   * it never happens implicitly, and everything else still refuses. */
+  async sendStillLooking(env, { reference, note, toArchived }, user) {
+    if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
+    const row = await env.DB.prepare(
+      `SELECT reference, name, email, payload, status, archived_at, case_closed_at
+         FROM applications WHERE reference = ?1`
+    ).bind(reference).first();
+    if (!row) throw new Error('No application with that reference');
+    if (row.archived_at && toArchived !== true) refuseIfArchived(row);
+    if (row.case_closed_at) throw new Error('They are placed. There is no search to ask about.');
+    if (row.status !== 'paid') throw new Error(`This one is "${row.status}", not paid`);
+
+    let application = {};
+    try { application = JSON.parse(row.payload); } catch { application = { name: row.name }; }
+    const to = application.email || row.email;
+
+    const { subject, html, text } = stillLookingEmail({
+      application, reference: row.reference,
+      siteUrl: (env.SITE_URL || 'https://fastkeyshousing.com').replace(/\/$/, ''),
+      supportEmail: env.NOTIFY_EMAIL || 'hello@fastkeyshousing.com',
+      extraNote: String(note || '').slice(0, 600),
+      resume: !!row.archived_at,
+    });
+
+    await sendAndLog(env, {
+      reference: row.reference, kind: 'still_looking', to, subject, html, text,
+      sentBy: user.email, meta: { note: note || null, resume: !!row.archived_at },
+    });
+    return { ok: true, sentTo: to };
+  },
+
   async sendDocuments(env, { reference, note }, user) {
     if (!REF_RE.test(reference || '')) throw new Error('Not a valid reference');
     const row = await env.DB.prepare(
@@ -1250,7 +1349,7 @@ const routes = {
    * Capped, and it reports per-recipient rather than a single success, because
    * a bulk send that half-worked is the case you most need to see. */
   async sendBulk(env, { kind, references, note, heading, body, ctaLabel, ctaUrl, dryRun }, user) {
-    const KINDS = ['documents', 'receipt', 'reminder', 'custom'];
+    const KINDS = ['documents', 'receipt', 'reminder', 'custom', 'stillLooking', 'stillLookingArchived'];
     if (!KINDS.includes(kind)) throw new Error(`Cannot bulk send "${kind}"`);
 
     /* A custom bulk email is written once and validated once, before the loop:
@@ -1259,8 +1358,18 @@ const routes = {
       if (String(body || '').trim().length < 5) throw new Error('Write something in the body');
     }
 
-    const refs = (Array.isArray(references) ? references : [])
+    let refs = (Array.isArray(references) ? references : [])
       .filter((r) => REF_RE.test(String(r || ''))).slice(0, 200);
+    /* "All archived clients" is a set only the database knows, so with no
+     * references given this kind selects them itself. Every other kind still
+     * requires an explicit list: what was previewed is what goes out. */
+    if (kind === 'stillLookingArchived' && !refs.length) {
+      const rows = await env.DB.prepare(
+        `SELECT reference FROM applications WHERE archived_at IS NOT NULL LIMIT 200`
+      ).all();
+      refs = (rows.results ?? []).map((r) => r.reference);
+      if (!refs.length) throw new Error('There are no archived clients');
+    }
     if (!refs.length) throw new Error('Nobody selected');
 
     /* Read the real columns first. If a deploy lands before db:migrate, naming a
@@ -1280,13 +1389,17 @@ const routes = {
       if (!row) { list.push({ reference, skipped: 'not found' }); continue; }
 
       /* Archived means taken off the list deliberately. A bulk send must not
-       * quietly reach back into it. */
-      if (row.archived_at) { list.push({ reference, skipped: 'archived' }); continue; }
+       * quietly reach back into it — except the one kind whose whole purpose
+       * is asking archived clients whether to reopen, which requires it. */
+      if (kind === 'stillLookingArchived') {
+        if (!row.archived_at) { list.push({ reference, skipped: 'not archived' }); continue; }
+      } else if (row.archived_at) { list.push({ reference, skipped: 'archived' }); continue; }
 
       /* Placed means we already found them a home. Asking them for a guarantor
        * payslip afterwards is the kind of thing that undoes a good result. */
       if (row.case_closed_at) { list.push({ reference, skipped: 'already placed' }); continue; }
-      if ((kind === 'documents' || kind === 'receipt') && row.status !== 'paid') {
+      if ((kind === 'documents' || kind === 'receipt' || kind === 'stillLooking'
+           || kind === 'stillLookingArchived') && row.status !== 'paid') {
         list.push({ reference, skipped: `not paid (${row.status})` }); continue;
       }
       if (kind === 'reminder' && row.status === 'paid') {
@@ -1310,7 +1423,8 @@ const routes = {
     /* Named off the outer routes object rather than `this`: the dispatcher pulls
      * each handler out by name and calls it bare, so `this` is undefined here. */
     const handler = { documents: routes.sendDocuments, receipt: routes.sendConfirmation,
-                      reminder: routes.remind }[kind];
+                      reminder: routes.remind, stillLooking: routes.sendStillLooking,
+                      stillLookingArchived: routes.sendStillLooking }[kind];
     const sent = [];
     const failed = [];
     for (const item of willSend) {
@@ -1324,7 +1438,10 @@ const routes = {
             heading, body, ctaLabel, ctaUrl,
           }, user);
         } else {
-          await handler(env, { reference: item.reference, note }, user);
+          await handler(env, {
+            reference: item.reference, note,
+            ...(kind === 'stillLookingArchived' ? { toArchived: true } : {}),
+          }, user);
         }
         sent.push(item.reference);
       } catch (err) {

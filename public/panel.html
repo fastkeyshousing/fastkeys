@@ -852,6 +852,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
         <button class="pn-b" id="pnNewListing" style="display:none">+ Listing</button>
         <button class="pn-b gh" id="pnImport" style="display:none">Import</button>
         <button class="pn-b" id="pnBulk" style="display:none">Bulk email</button>
+        <button class="pn-b" id="pnStillAll" style="display:none">Ask all: still looking?</button>
         <button class="pn-b" id="pnComposeNew" style="display:none">New email</button>
         <button class="pn-b gh" id="pnPaste" style="display:none">Paste a post</button>
       </div>
@@ -1266,7 +1267,11 @@ textarea.pn-in{min-height:60px; resize:vertical}
             ? '<p class="pn-hint2" style="margin-top:0">Archived on ' + esc(when(r.archived_at)) +
               ' by ' + esc(r.archived_by || '') + '.' +
               (r.archive_reason ? '<br>Reason: ' + esc(r.archive_reason) : '') + '</p>' +
-              '<div class="pn-acts"><button class="pn-b" id="pnUnarch">Restore to the client list</button></div>'
+              '<div class="pn-acts"><button class="pn-b" id="pnUnarch">Restore to the client list</button>' +
+              '<button class="pn-b gh" id="pnStillOne"' + (r.status !== 'paid' ? ' disabled' : '') +
+              '>Still looking?</button></div>' +
+              '<p class="pn-hint2">\u201cStill looking?\u201d is the one email an archived client can be ' +
+              'sent: it asks whether to start their search again, without restoring them first.</p>'
             : '<p class="pn-hint2" style="margin-top:0">Takes them off the client list and keeps ' +
               'everything: documents, emails, payment record, letter. Reversible at any time from ' +
               'the Archived tab.</p><div class="pn-inline">' +
@@ -1405,6 +1410,20 @@ textarea.pn-in{min-height:60px; resize:vertical}
             load();
           })
           .catch(function(e){ note('#pnArchMsg', e.message, false); });
+      };
+
+      if($('#pnStillOne')) $('#pnStillOne').onclick = function(){
+        var btn = this;
+        btn.disabled = true; btn.textContent = 'Sending\u2026';
+        api('sendStillLooking', {reference: r.reference, toArchived: true}, 'POST')
+          .then(function(res){
+            btn.textContent = 'Sent';
+            note('#pnArchMsg', 'Sent to ' + res.sentTo + '. Their record stays archived.', true);
+          })
+          .catch(function(e){
+            btn.disabled = false; btn.textContent = 'Still looking?';
+            note('#pnArchMsg', e.message, false);
+          });
       };
 
       /* Two deliberate steps: a written reason, and the reference typed out. The
@@ -2151,14 +2170,16 @@ textarea.pn-in{min-height:60px; resize:vertical}
         : '<tr><td colspan="2" style="color:rgba(237,239,242,.42)">Nothing recorded. Add it while you still have the email.</td></tr>') +
       '</table></div>' +
 
-      '<div class="pn-sec"><h3>Share with a client</h3>' +
+      '<div class="pn-sec"><h3>Share with clients</h3>' +
       (archived
         ? '<p class="pn-hint2" style="margin-top:0">Archived posts cannot be shared. Restore it first.</p>'
         : (l.status === 'published'
           ? '<div class="pn-inline"><select id="lsClient" class="pn-in">' + clientOptions(null) + '</select>' +
-            '<button class="pn-b" id="lsShare">Send it</button></div>' +
+            '<button class="pn-b" id="lsShare">Send it</button>' +
+            (isOwner() ? '<button class="pn-b gh" id="lsShareMany">Send to several / all\u2026</button>' : '') +
+            '</div>' +
             '<p class="pn-hint2">Sends the branded property email with the photos and the lister\u2019s ' +
-            'own contact details, and logs it against that client.</p>'
+            'own contact details, and logs it against each client.</p>'
           : '<p class="pn-hint2" style="margin-top:0">Publish it first.</p>')) +
       '<div class="pn-msg2" id="lsShareMsg"></div></div>' +
 
@@ -2203,6 +2224,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
         .catch(function(e){ note('#lsShareMsg', e.message, false); })
         .then(function(){ btn.disabled = false; btn.textContent = 'Send it'; });
     };
+    if($('#lsShareMany')) $('#lsShareMany').onclick = function(){ shareBulkDialog(l); };
     if($('#lsEdit')) $('#lsEdit').onclick = function(){ listingForm(l); };
     if($('#lsDel')) $('#lsDel').onclick = function(){
       if(!confirm('Archive "' + l.title + '"?\n\nIt comes off the board and the public site. ' +
@@ -2223,6 +2245,143 @@ textarea.pn-in{min-height:60px; resize:vertical}
       }).catch(function(e){ note('#lsShareMsg', e.message, false); });
     };
     if($('#lsPurge')) $('#lsPurge').onclick = function(){ purgeBoard([id], false); };
+  }
+
+  /* One published post to several clients, or to everyone, chosen by tickbox.
+     Same shape as the bulk mail dialog: preview first, because a blast has no
+     undo. The server skips archived and placed clients whatever is ticked. */
+  function shareBulkDialog(l){
+    var clients = window.__clients || [];
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">Send \u201c' + esc(l.title) + '\u201d to clients</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">One email each, sent separately, with the photos ' +
+      'and the lister\u2019s contact details. Tick who gets it, or Select all for everyone. ' +
+      'Archived and placed clients are always skipped.</p>' +
+      (clients.length
+        ? '<div class="pn-selbar" style="padding:8px 0">' +
+          '<label><input type="checkbox" id="shSelAll"> Select all</label>' +
+          '<span id="shSelCount"></span></div>' +
+          '<div style="max-height:260px;overflow:auto;border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:6px 10px">' +
+          clients.map(function(c){
+            return '<label style="display:flex;gap:9px;align-items:center;padding:5px 0;cursor:pointer">' +
+              '<input type="checkbox" class="sh-sel pn-bksel" value="' + esc(c.reference) + '">' +
+              '<span style="color:var(--chalk);font-size:13.6px">' + esc(c.name) + '</span>' +
+              '<span style="color:rgba(237,239,242,.4);font-size:12.3px">' + esc(c.reference) + '</span></label>';
+          }).join('') + '</div>'
+        : '<p class="pn-hint2">There are no active clients to send to.</p>') +
+      '<div class="pn-acts"><button class="pn-b" id="shCheck"' + (clients.length ? '' : ' disabled') +
+      '>See who would get it</button>' +
+      '<button class="pn-b gh" id="shCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="shMsg"></div><div id="shResult"></div>';
+    $('#pnModal').classList.add('open');
+    $('#shCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+
+    var chosen = function(){
+      return Array.prototype.map.call(document.querySelectorAll('.sh-sel:checked'),
+        function(cb){ return cb.value; });
+    };
+    var count = function(){
+      var n = chosen().length;
+      $('#shSelCount').textContent = n ? n + ' selected' : '';
+      if($('#shSelAll')) $('#shSelAll').checked = n > 0 && n === clients.length;
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('.sh-sel'), function(cb){
+      cb.addEventListener('change', count);
+    });
+    if($('#shSelAll')) $('#shSelAll').addEventListener('change', function(){
+      var on = this.checked;
+      Array.prototype.forEach.call(document.querySelectorAll('.sh-sel'), function(cb){ cb.checked = on; });
+      count();
+    });
+
+    $('#shCheck').onclick = function(){
+      var refs = chosen();
+      if(!refs.length){ return note('#shMsg', 'Tick at least one client, or use Select all.', false); }
+      api('shareListingBulk', {id: l.id, references: refs, dryRun: true}, 'POST').then(function(r){
+        var skipped = (r.list || []).filter(function(x){ return x.skipped; });
+        $('#shResult').innerHTML =
+          '<div class="pn-sec"><h3>' + r.willSend + ' of ' + r.total + ' would receive it</h3>' +
+          (skipped.length
+            ? '<p class="pn-hint2" style="margin-top:0">Skipped: ' +
+              skipped.slice(0,12).map(function(x){ return esc(x.reference) + ' (' + esc(x.skipped) + ')'; }).join(', ') +
+              (skipped.length > 12 ? ' and ' + (skipped.length - 12) + ' more' : '') + '</p>'
+            : '') +
+          (r.willSend
+            ? '<div class="pn-acts"><button class="pn-b" id="shGo">Send to ' + r.willSend + ' now</button></div>'
+            : '<p class="pn-hint2">Nobody ticked qualifies.</p>') +
+          '<div class="pn-msg2" id="shGoMsg"></div></div>';
+        if($('#shGo')) $('#shGo').onclick = function(){
+          if(!confirm('Send this post to ' + r.willSend + ' clients?\n\nThere is no undo.')) return;
+          var btn = $('#shGo'); btn.disabled = true; btn.textContent = 'Sending\u2026';
+          api('shareListingBulk', {id: l.id, references: refs}, 'POST').then(function(res){
+            $('#pnModal').classList.remove('open');
+            note('#lsShareMsg', 'Sent to ' + res.sent + ' client' + (res.sent === 1 ? '' : 's') + '.', true);
+            alert('Sent to ' + res.sent + '.' +
+              (res.failed && res.failed.length
+                ? '\n\nFailed: ' + res.failed.map(function(f){ return f.reference + ' (' + f.error + ')'; }).join('; ')
+                : ''));
+          }).catch(function(e){
+            btn.disabled = false; btn.textContent = 'Send now';
+            note('#shGoMsg', e.message, false);
+          });
+        };
+      }).catch(function(e){ note('#shMsg', e.message, false); });
+    };
+  }
+
+  /* The one sanctioned way to email the archive: asks every archived client
+     whether we should start looking for them again. Same discipline as every
+     other blast — a dry run first, and the send is a second, confirmed click. */
+  function stillArchivedDialog(){
+    $('#pnModalBox').innerHTML =
+      '<h3 style="font-size:17px;margin-bottom:6px">Ask the archive: still looking?</h3>' +
+      '<p class="pn-hint2" style="margin-top:0">Sends the check-in to <b>every archived client</b>, ' +
+      'in its \u201cwant us to start looking again?\u201d wording, with one-tap Yes and No buttons. ' +
+      'One email each. Unpaid and placed clients are skipped. This is the only email that can ' +
+      'reach the archive.</p>' +
+      '<div class="pn-grid"><div class="wide"><label for="sa_note">Extra line (optional)</label>' +
+      '<input id="sa_note" class="pn-in" placeholder="e.g. The new academic year is filling up fast."></div></div>' +
+      '<div class="pn-acts"><button class="pn-b" id="saCheck">See who would get it</button>' +
+      '<button class="pn-b gh" id="saCancel">Cancel</button></div>' +
+      '<div class="pn-msg2" id="saMsg"></div><div id="saResult"></div>';
+    $('#pnModal').classList.add('open');
+    $('#saCancel').onclick = function(){ $('#pnModal').classList.remove('open'); };
+
+    $('#saCheck').onclick = function(){
+      api('sendBulk', {kind: 'stillLookingArchived', note: $('#sa_note').value.trim(), dryRun: true}, 'POST')
+        .then(function(r){
+          var skipped = (r.list || []).filter(function(x){ return x.skipped; });
+          $('#saResult').innerHTML =
+            '<div class="pn-sec"><h3>' + r.willSend + ' of ' + r.total + ' archived clients would receive it</h3>' +
+            (skipped.length
+              ? '<p class="pn-hint2" style="margin-top:0">Skipped: ' +
+                skipped.slice(0,12).map(function(x){ return esc(x.reference) + ' (' + esc(x.skipped) + ')'; }).join(', ') +
+                (skipped.length > 12 ? ' and ' + (skipped.length - 12) + ' more' : '') + '</p>'
+              : '') +
+            (r.willSend
+              ? '<div class="pn-acts"><button class="pn-b" id="saGo">Send to ' + r.willSend + ' now</button></div>'
+              : '<p class="pn-hint2">Nobody in the archive qualifies.</p>') +
+            '<div class="pn-msg2" id="saGoMsg"></div></div>';
+          if($('#saGo')) $('#saGo').onclick = function(){
+            if(!confirm('Send the check-in to ' + r.willSend + ' archived clients?\n\nThere is no undo.')) return;
+            var btn = $('#saGo'); btn.disabled = true; btn.textContent = 'Sending\u2026';
+            api('sendBulk', {kind: 'stillLookingArchived', note: $('#sa_note').value.trim()}, 'POST')
+              .then(function(res){
+                $('#pnModal').classList.remove('open');
+                alert('Sent to ' + res.sent + '.' +
+                  (res.failed && res.failed.length
+                    ? '\n\nFailed: ' + res.failed.map(function(f){ return f.reference + ' (' + f.error + ')'; }).join('; ')
+                    : ''));
+                load();
+              })
+              .catch(function(e){
+                btn.disabled = false; btn.textContent = 'Send now';
+                note('#saGoMsg', e.message, false);
+              });
+          };
+        })
+        .catch(function(e){ note('#saMsg', e.message, false); });
+    };
   }
 
   /* Sending the same email to many clients at once.
@@ -2248,9 +2407,10 @@ textarea.pn-in{min-height:60px; resize:vertical}
       '<option value="documents">Ask for documents &mdash; paid clients</option>' +
       '<option value="receipt">Receipt / confirmation &mdash; paid clients</option>' +
       '<option value="reminder">Payment reminder &mdash; unpaid only, max two each</option>' +
+      '<option value="stillLooking">Still looking? check-in &mdash; paid clients</option>' +
       '<option value="custom">Custom email &mdash; written below, everyone chosen</option>' +
       '</select></div>' +
-      '<div class="wide" id="bk_noteWrap"><label for="bk_note">Extra line (optional, documents only)</label>' +
+      '<div class="wide" id="bk_noteWrap"><label for="bk_note">Extra line (optional; documents and still-looking only)</label>' +
       '<input id="bk_note" class="pn-in" placeholder="e.g. We are viewing three places next week."></div>' +
       '<div class="wide" id="bk_customWrap" style="display:none">' +
         '<label for="bk_heading">Heading</label>' +
@@ -2499,6 +2659,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
       '<button class="pn-b gh" id="mSendReminder"' + (r.status === 'paid' ? ' disabled' : '') + '>' +
         'Payment reminder</button>' +
       '<button class="pn-b gh" id="mSendDocs">Ask for documents</button>' +
+      '<button class="pn-b gh" id="mSendStill"' + (r.status !== 'paid' ? ' disabled' : '') + '>Still looking?</button>' +
       '<button class="pn-b gh" id="mSendProperty">Send a property</button>' +
       '<button class="pn-b gh" id="mSendCustom">Custom email</button>' +
       (isOwner() ? '<button class="pn-b gh" id="mSendLandlord">Approach a landlord</button>' : '') +
@@ -2521,6 +2682,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
       send('remind', {reference: ref}, this, refresh, true);
     };
     $('#mSendDocs').onclick = function(){ send('sendDocuments', {reference: ref}, this, refresh); };
+    $('#mSendStill').onclick = function(){ send('sendStillLooking', {reference: ref}, this, refresh); };
     $('#mSendProperty').onclick = function(){ propertyComposer(ref, r, refresh); };
     $('#mSendCustom').onclick = function(){ customComposer(ref, r, refresh); };
     if($('#mSendLandlord')) $('#mSendLandlord').onclick = function(){ landlordComposer(ref, r, refresh); };
@@ -2877,6 +3039,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
   $('#pnNewListing').addEventListener('click', function(){ listingForm(null); });
   $('#pnImport').addEventListener('click', importDialog);
   $('#pnBulk').addEventListener('click', bulkDialog);
+  $('#pnStillAll').addEventListener('click', stillArchivedDialog);
 
   /* Paste a post you already read, and the fields fill themselves in. The
      parsing happens server-side so there is one implementation, and every value
@@ -2958,6 +3121,7 @@ textarea.pn-in{min-height:60px; resize:vertical}
       if($('#pnBulk')) $('#pnBulk').style.display =
         (view === 'mail' && $('#pnMailKind').value === 'clients' && isOwner()) ? '' : 'none';
       if($('#pnPaste')) $('#pnPaste').style.display = liveBoard ? '' : 'none';
+      if($('#pnStillAll')) $('#pnStillAll').style.display = (archived && isOwner()) ? '' : 'none';
       if($('#pnComposeNew')) $('#pnComposeNew').style.display = view === 'compose' ? '' : 'none';
       selected = null;
       $('#pnPane').innerHTML = '<div class="pn-empty"><div>' +
